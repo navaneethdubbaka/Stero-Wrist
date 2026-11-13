@@ -48,7 +48,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         ...parsed,
         assistant: { ...defaults.assistant, ...parsed.assistant },
         tts: { ...defaults.tts, ...parsed.tts },
-        notifications: { ...defaults.notifications, ...parsed.notifications },
+        notifications: {
+          ...defaults.notifications,
+          ...parsed.notifications,
+          deviceTokenUrl:
+            typeof parsed.notifications?.deviceTokenUrl === 'string'
+              ? parsed.notifications.deviceTokenUrl
+              : '',
+        },
         audio: {
           ...defaults.audio,
           ...parsed.audio,

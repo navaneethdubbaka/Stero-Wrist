@@ -1,35 +1,140 @@
-import { StyleSheet, Switch, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { Screen } from '../../shared/ui/Screen';
-import { colors, touch, type as typeScale } from '../../shared/theme/tokens';
+import { FormField } from '../../shared/ui/FormField';
+import { colors, space, touch, type as typeScale } from '../../shared/theme/tokens';
+import {
+  disableFcmRegistration,
+  syncFcmRegistration,
+} from '../notifications/NotificationHandler';
+import { useNotificationsStore } from '../notifications/notificationsStore';
 import { useSettingsStore } from './settingsStore';
+
+function statusLabel(
+  status: string,
+  lastError: string | null,
+): { title: string; body: string } {
+  switch (status) {
+    case 'ready':
+      return {
+        title: 'Connected',
+        body: 'Device token registered with Hermes.',
+      };
+    case 'pending':
+      return {
+        title: 'Pending',
+        body: lastError ?? 'Waiting for permission, token, or device URL…',
+      };
+    case 'error':
+      return {
+        title: 'Error',
+        body: lastError ?? 'Registration failed.',
+      };
+    default:
+      return {
+        title: 'Off',
+        body: 'Enable FCM to register this device for Hermes pushes.',
+      };
+  }
+}
 
 export function NotificationSettingsScreen() {
   const notifications = useSettingsStore((s) => s.settings.notifications);
   const setNotifications = useSettingsStore((s) => s.setNotifications);
+  const status = useNotificationsStore((s) => s.status);
+  const lastError = useNotificationsStore((s) => s.lastError);
+  const lastRegisteredAt = useNotificationsStore((s) => s.lastRegisteredAt);
+  const [busy, setBusy] = useState(false);
+
+  const label = statusLabel(status, lastError);
+
+  const onToggle = async (fcmEnabled: boolean) => {
+    setNotifications({ fcmEnabled });
+    setBusy(true);
+    try {
+      if (fcmEnabled) {
+        await syncFcmRegistration();
+      } else {
+        await disableFcmRegistration();
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onRegisterNow = async () => {
+    setBusy(true);
+    try {
+      if (!notifications.fcmEnabled) {
+        setNotifications({ fcmEnabled: true });
+      }
+      await syncFcmRegistration();
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <Screen>
       <Text style={styles.title}>Notifications</Text>
       <Text style={styles.hint}>
-        Preference only for now. Firebase Cloud Messaging wiring ships in Phase 6.
+        Proactive Hermes alerts via Firebase Cloud Messaging. Separate from the
+        voice webhook. Spoken alerts arrive in Phase 7.
       </Text>
 
       <View style={styles.row}>
         <View style={styles.text}>
           <Text style={styles.label}>Enable FCM notifications</Text>
-          <Text style={styles.caption}>Does not register a device token yet</Text>
+          <Text style={styles.caption}>
+            Requests permission and registers the device token
+          </Text>
         </View>
         <Switch
           value={notifications.fcmEnabled}
-          onValueChange={(fcmEnabled) => setNotifications({ fcmEnabled })}
+          disabled={busy}
+          onValueChange={(value) => {
+            void onToggle(value);
+          }}
         />
       </View>
 
+      <FormField
+        label="Hermes device token URL"
+        value={notifications.deviceTokenUrl}
+        onChangeText={(deviceTokenUrl) => setNotifications({ deviceTokenUrl })}
+        placeholder="https://hermes.example/v1/device-tokens"
+        keyboardType="url"
+        hint="POST endpoint that associates this device with your Hermes profile"
+      />
+
+      <View style={styles.statusBox}>
+        <Text style={styles.section}>Connection</Text>
+        <Text style={styles.statusTitle}>{label.title}</Text>
+        <Text style={styles.statusBody}>{label.body}</Text>
+        {lastRegisteredAt ? (
+          <Text style={styles.caption}>Last registered {lastRegisteredAt}</Text>
+        ) : null}
+      </View>
+
+      <Pressable
+        style={[styles.primaryBtn, busy && styles.btnDisabled]}
+        disabled={busy}
+        onPress={() => {
+          void onRegisterNow();
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="Register now"
+      >
+        <Text style={styles.primaryText}>
+          {busy ? 'Working…' : 'Register now'}
+        </Text>
+      </Pressable>
+
       <View style={styles.banner}>
-        <Text style={styles.bannerTitle}>Coming in Phase 6</Text>
+        <Text style={styles.bannerTitle}>Phase 7</Text>
         <Text style={styles.bannerBody}>
-          Priority rules, quiet hours, and spoken critical alerts are not active in
-          this build.
+          Priority speech, quiet hours, and DND behaviour are not active yet.
+          The speak field on Hermes payloads is parsed and ignored.
         </Text>
       </View>
     </Screen>
@@ -63,6 +168,37 @@ const styles = StyleSheet.create({
   caption: {
     ...typeScale.caption,
     color: colors.mist,
+  },
+  section: {
+    ...typeScale.label,
+    color: colors.mist,
+  },
+  statusBox: {
+    gap: 4,
+    marginTop: space.sm,
+  },
+  statusTitle: {
+    ...typeScale.label,
+    color: colors.foam,
+  },
+  statusBody: {
+    ...typeScale.body,
+    color: colors.mist,
+  },
+  primaryBtn: {
+    backgroundColor: colors.lanternReady,
+    borderRadius: 10,
+    minHeight: touch.min,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  primaryText: {
+    ...typeScale.label,
+    color: colors.ink,
+  },
+  btnDisabled: {
+    opacity: 0.5,
   },
   banner: {
     backgroundColor: colors.surface,

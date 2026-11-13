@@ -21,3 +21,8 @@ export function profileTokenSecretId(profileId: string): string {
 export function ttsApiKeySecretId(): string {
   return 'stero.tts.apiKey';
 }
+
+/** Native FCM / APNs device push token (not Expo Push token). */
+export function fcmDeviceTokenSecretId(): string {
+  return 'stero.fcm.deviceToken';
+}

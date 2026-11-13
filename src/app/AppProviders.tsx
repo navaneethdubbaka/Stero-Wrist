@@ -4,6 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { RootNavigator } from './navigation';
 import { startAssistantActivationListeners } from '../features/assistant/assistantActivation';
+import { startNotificationListeners } from '../features/notifications/NotificationHandler';
 import { useProfilesStore } from '../features/profiles/profilesStore';
 import { useSettingsStore } from '../features/settings/settingsStore';
 import { hydratePrefs } from '../shared/storage/prefs';
@@ -36,7 +37,12 @@ export function AppProviders() {
 
   useEffect(() => {
     if (!booted || !profilesReady || !settingsReady) return;
-    return startAssistantActivationListeners();
+    const stopAssistant = startAssistantActivationListeners();
+    const stopNotify = startNotificationListeners();
+    return () => {
+      stopAssistant();
+      stopNotify();
+    };
   }, [booted, profilesReady, settingsReady]);
 
   const ready = booted && profilesReady && settingsReady;

@@ -2,7 +2,7 @@
 
 Android / iOS companion app that turns a smartwatch into a voice + notification front-end for Hermes (and other AI backends).
 
-**Phase 0–5 status:** Expo scaffold, Home + settings/profiles, phone-mic STT, Hermes webhook, system TTS, Android default-assistant activation + HFP mic routing.
+**Phase 0–6 status:** Expo scaffold, Home + settings/profiles, phone-mic STT, Hermes webhook, system TTS, Android default-assistant + HFP mic, FCM registration + notification display.
 
 ## Disk layout (E:)
 
@@ -28,17 +28,26 @@ npm run test:voice
 npm run test:webhook
 npm run test:tts
 npm run test:audio
+npm run test:notifications
 npx expo start
 ```
 
-### Phase 2–5 — voice + Hermes + TTS + watch button (dev client)
+### Firebase (Phase 6)
 
-STT uses **`expo-speech-recognition`**; TTS uses **`expo-speech`**; watch activation uses local module **`stero-assistant`** (`VoiceInteractionService` + HFP/SCO). Needs a **development client**, not Expo Go.
+1. Create a Firebase project and add Android (`com.sterowrist.app`) / iOS apps.
+2. Download config files and place them at the project root:
 
-Configure an active **backend profile** (HTTPS webhook URL + token) before Activate. Production builds reject `http://` URLs; development allows them for local Hermes.
+```powershell
+copy google-services.json.example google-services.json
+# replace with the real Firebase Android file
 
-1. Enable Windows **LongPathsEnabled** if CMake `ninja mkdir` fails.
-2. Prefer a **short path without spaces** for native builds:
+copy GoogleService-Info.plist.example GoogleService-Info.plist
+# replace with the real Firebase iOS file
+```
+
+`app.config.js` wires `googleServicesFile` only when those files exist (they are gitignored).
+
+3. Rebuild the **development client** (Expo Go is not enough for full FCM):
 
 ```powershell
 robocopy "E:\Stero Wrist" E:\sw /MIR /XD .git .expo android\app\.cxx android\app\build android\build
@@ -47,57 +56,37 @@ npx expo prebuild --platform android
 npx expo run:android
 ```
 
-3. On the device:
-   - Settings → **Default assistant role** → set Stero Wrist as the default digital assistant.
-   - Settings → Audio → input preference (`auto` / `watch` / `phone`).
-   - **Activate assistant** (or press the watch assistant button) → speak → Hermes reply spoken on the **phone speaker**.
-   - **Cancel** stops listening, SCO, and TTS.
+4. In the app: Settings → Notifications → set **Hermes device token URL** → enable FCM → **Register now**.
+5. Hermes should POST to that URL with the device token (illustrative contract in Phase 6 code), then send FCM data/notification payloads with `type: "hermes_notification"`.
 
-Mic input and speaker output are independent; watch/earbud **output** is deferred to Phase 9.
+Voice webhook and FCM remain separate systems. **Notification Only** mode disables voice but keeps FCM when enabled.
 
-### Android — watch button checklist
+### Manual FCM checklist
 
-- [ ] Stero Wrist is the system default assistant.
-- [ ] Phone locked / screen off → watch assistant button starts a session.
-- [ ] Home shows mic source (`Mic: Watch HFP` or `Mic: Phone`).
-- [ ] If HFP unavailable, banner **Using phone mic** and session still completes.
-- [ ] Cancel mid-listen returns to Idle (never stuck in LISTENING).
-- [ ] Role not set → soft Home prompt; in-app Activate still works on phone mic.
+- [ ] `google-services.json` present; app rebuilt
+- [ ] Device token URL set; Register now → Home Notify lantern **ready**
+- [ ] App backgrounded → Hermes FCM push → system notification shown
+- [ ] Malformed payload ignored (no crash)
+- [ ] Token refresh re-registers with Hermes
+- [ ] FCM off → lantern **off**; voice path unchanged
 
-### iOS — Shortcut activation
+### Phase 2–5 voice (dev client)
 
-iOS has no third-party default-assistant / watch-mic path in this phase.
+STT: `expo-speech-recognition`. TTS: `expo-speech`. Watch button: `stero-assistant` VoiceInteraction + HFP/SCO.
 
-1. Create a Shortcut: **Open URL** → `stero-wrist://activate`
-2. Optionally bind it to the Action Button / Back Tap.
-3. Opens the app and starts a phone-mic voice session.
+Configure an active **backend profile** before Activate. Production builds reject `http://` webhook URLs; `__DEV__` allows them.
 
 ## Features so far
 
-### Phase 1
-- Home **ChannelStrip** status; soft **Set up Hermes** when no profiles
-- Backend profiles, webhook editor, SecureStore tokens, AsyncStorage prefs
-- Assistant / TTS settings; notification stubs
+### Phase 1–5
+- Home ChannelStrip, profiles, webhook, STT, system TTS, Android assistant role + mic routing, iOS `stero-wrist://activate`
 
-### Phase 2
-- Pure voice state machine (`IDLE → … → SPEAKING → IDLE`)
-- Phone-mic STT via `expo-speech-recognition`
-- Home **Activate assistant** / Cancel / transcript
-
-### Phase 3
-- Hermes webhook client (template, auth, timeout, retry, response mapping)
-- Session IDs; HTTPS enforced outside `__DEV__`
-
-### Phase 4
-- System TTS (`expo-speech`) on phone speaker; stop on cancel / re-activate
-- TTS **Test voice**; cloud providers fall back to system until Phase 9
-
-### Phase 5
-- Local Expo module `stero-assistant`: `VoiceInteractionService`, mic FGS, HFP/SCO routing
-- Config plugin `plugins/withSteroAssistant.js` (manifest services + permissions)
-- Settings → Default assistant role + Audio input enums + live route probe
-- Home mic-source line + phone-mic fallback banner
-- iOS: `stero-wrist://activate` deep link / Shortcut (phone mic only)
+### Phase 6
+- `expo-notifications` + Firebase config files
+- Device token → Hermes `deviceTokenUrl` (active profile auth)
+- Priority Android channels / iOS categories
+- Payload validation; `speak` ignored until Phase 7
+- Live Home notify status
 
 ## Docs
 

@@ -10,6 +10,7 @@ import { ChannelStrip, type ChannelSegment } from '../../shared/ui/ChannelStrip'
 import { colors, space, touch, type as typeScale } from '../../shared/theme/tokens';
 import { useProfilesStore } from '../profiles/profilesStore';
 import { useSettingsStore } from '../settings/settingsStore';
+import { useNotificationsStore } from '../notifications/notificationsStore';
 import type { RootStackParamList } from '../../app/navigation';
 import { buildChannelStates } from './channelStatus';
 import { useVoiceSessionStore } from '../assistant/voiceSessionStore';
@@ -44,6 +45,8 @@ export function HomeScreen({ navigation }: Props) {
   const settings = useSettingsStore((s) => s.settings);
   const tts = settings.tts;
   const notifications = settings.notifications;
+  const notifyStatus = useNotificationsStore((s) => s.status);
+  const notifyError = useNotificationsStore((s) => s.lastError);
 
   const snapshot = useVoiceSessionStore((s) => s.snapshot);
   const partialTranscript = useVoiceSessionStore((s) => s.partialTranscript);
@@ -60,9 +63,21 @@ export function HomeScreen({ navigation }: Props) {
   }, []);
 
   const channel = useMemo(
-    () => buildChannelStates(activeProfile, settings, voiceState),
-    [activeProfile, settings, voiceState],
+    () => buildChannelStates(activeProfile, settings, voiceState, notifyStatus),
+    [activeProfile, settings, voiceState, notifyStatus],
   );
+
+  const notifyHomeLabel = (() => {
+    if (!notifications.fcmEnabled) return 'Not connected';
+    if (notifyStatus === 'ready') return 'Connected — Hermes can push alerts';
+    if (notifyStatus === 'pending') {
+      return notifyError ?? 'Registering device token…';
+    }
+    if (notifyStatus === 'error') {
+      return notifyError ?? 'Registration error';
+    }
+    return 'FCM enabled — waiting…';
+  })();
 
   const segments: ChannelSegment[] = [
     { id: 'assistant', label: 'Assistant', state: channel.assistant },
@@ -227,11 +242,13 @@ export function HomeScreen({ navigation }: Props) {
 
       <View style={styles.block}>
         <Text style={styles.sectionLabel}>Notifications</Text>
-        <Text style={styles.body}>
-          {notifications.fcmEnabled
-            ? 'Marked enabled — FCM wiring comes in Phase 6'
-            : 'Not connected (Phase 6)'}
-        </Text>
+        <Text style={styles.body}>{notifyHomeLabel}</Text>
+        <Pressable
+          onPress={() => navigation.navigate('NotificationSettings')}
+          accessibilityRole="button"
+        >
+          <Text style={styles.settingsLabel}>Notification settings</Text>
+        </Pressable>
       </View>
 
       <View style={styles.block}>

@@ -58,6 +58,8 @@ export type TtsSettings = {
 
 export type NotificationSettings = {
   fcmEnabled: boolean;
+  /** Full URL for Hermes device-token registration (separate from voice webhook). */
+  deviceTokenUrl: string;
 };
 
 /** Mic preference — actual route is probed at listen time. */
@@ -122,6 +124,7 @@ export function createDefaultSettings(): AppSettings {
     },
     notifications: {
       fcmEnabled: false,
+      deviceTokenUrl: '',
     },
     audio: {
       inputDevice: 'auto',
