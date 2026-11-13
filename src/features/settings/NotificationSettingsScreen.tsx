@@ -3,12 +3,24 @@ import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { Screen } from '../../shared/ui/Screen';
 import { FormField } from '../../shared/ui/FormField';
 import { colors, space, touch, type as typeScale } from '../../shared/theme/tokens';
+import type {
+  NotificationPriority,
+  PriorityNotifyRule,
+} from '../../shared/types/settings';
 import {
   disableFcmRegistration,
   syncFcmRegistration,
 } from '../notifications/NotificationHandler';
 import { useNotificationsStore } from '../notifications/notificationsStore';
+import { clampSpeechVolume } from '../notifications/priorityPolicy';
 import { useSettingsStore } from './settingsStore';
+
+const PRIORITIES: { id: NotificationPriority; label: string }[] = [
+  { id: 'critical', label: 'Critical' },
+  { id: 'high', label: 'High' },
+  { id: 'normal', label: 'Normal' },
+  { id: 'low', label: 'Low' },
+];
 
 function statusLabel(
   status: string,
@@ -48,6 +60,21 @@ export function NotificationSettingsScreen() {
 
   const label = statusLabel(status, lastError);
 
+  const patchRule = (
+    priority: NotificationPriority,
+    patch: Partial<PriorityNotifyRule>,
+  ) => {
+    setNotifications({
+      priorityRules: {
+        ...notifications.priorityRules,
+        [priority]: {
+          ...notifications.priorityRules[priority],
+          ...patch,
+        },
+      },
+    });
+  };
+
   const onToggle = async (fcmEnabled: boolean) => {
     setNotifications({ fcmEnabled });
     setBusy(true);
@@ -78,8 +105,9 @@ export function NotificationSettingsScreen() {
     <Screen>
       <Text style={styles.title}>Notifications</Text>
       <Text style={styles.hint}>
-        Proactive Hermes alerts via Firebase Cloud Messaging. Separate from the
-        voice webhook. Spoken alerts arrive in Phase 7.
+        Hermes FCM alerts. Voice webhook stays separate. Speech follows priority
+        rules and quiet hours; OS DND still controls channel sound (critical can
+        bypass DND on Android).
       </Text>
 
       <View style={styles.row}>
@@ -130,11 +158,91 @@ export function NotificationSettingsScreen() {
         </Text>
       </Pressable>
 
+      <Text style={styles.section}>Priority rules</Text>
+      <Text style={styles.caption}>
+        Defaults: critical/high speak; normal/low display only. Payload speak=false
+        always suppresses speech.
+      </Text>
+      {PRIORITIES.map((p) => {
+        const rule = notifications.priorityRules[p.id];
+        return (
+          <View key={p.id} style={styles.priorityCard}>
+            <Text style={styles.priorityTitle}>{p.label}</Text>
+            <View style={styles.row}>
+              <Text style={styles.label}>Notify</Text>
+              <Switch
+                value={rule.notify}
+                onValueChange={(notify) => patchRule(p.id, { notify })}
+              />
+            </View>
+            <View style={styles.row}>
+              <Text style={styles.label}>Speak</Text>
+              <Switch
+                value={rule.speak}
+                onValueChange={(speak) => patchRule(p.id, { speak })}
+              />
+            </View>
+          </View>
+        );
+      })}
+
+      <Text style={styles.section}>Quiet hours</Text>
+      <View style={styles.row}>
+        <View style={styles.text}>
+          <Text style={styles.label}>Enable quiet hours</Text>
+          <Text style={styles.caption}>
+            Suppresses speech (display still shown)
+          </Text>
+        </View>
+        <Switch
+          value={notifications.quietHoursEnabled}
+          onValueChange={(quietHoursEnabled) =>
+            setNotifications({ quietHoursEnabled })
+          }
+        />
+      </View>
+      <FormField
+        label="Start (HH:mm)"
+        value={notifications.quietHoursStart}
+        onChangeText={(quietHoursStart) => setNotifications({ quietHoursStart })}
+        placeholder="22:00"
+      />
+      <FormField
+        label="End (HH:mm)"
+        value={notifications.quietHoursEnd}
+        onChangeText={(quietHoursEnd) => setNotifications({ quietHoursEnd })}
+        placeholder="07:00"
+      />
+      <View style={styles.row}>
+        <View style={styles.text}>
+          <Text style={styles.label}>Critical during quiet hours</Text>
+          <Text style={styles.caption}>Allow critical alerts to speak</Text>
+        </View>
+        <Switch
+          value={notifications.criticalDuringQuietHours}
+          onValueChange={(criticalDuringQuietHours) =>
+            setNotifications({ criticalDuringQuietHours })
+          }
+        />
+      </View>
+
+      <FormField
+        label="Speech volume (0–1)"
+        value={String(notifications.speechVolume)}
+        onChangeText={(text) => {
+          const n = Number(text);
+          if (text.trim() === '') return;
+          setNotifications({ speechVolume: clampSpeechVolume(n) });
+        }}
+        keyboardType="numeric"
+        hint="Applied to system TTS for notification speech"
+      />
+
       <View style={styles.banner}>
-        <Text style={styles.bannerTitle}>Phase 7</Text>
+        <Text style={styles.bannerTitle}>Session conflict</Text>
         <Text style={styles.bannerBody}>
-          Priority speech, quiet hours, and DND behaviour are not active yet.
-          The speak field on Hermes payloads is parsed and ignored.
+          Alerts never cancel a voice session. Critical can interrupt assistant
+          TTS while speaking; other speech waits until Idle.
         </Text>
       </View>
     </Screen>
@@ -172,6 +280,7 @@ const styles = StyleSheet.create({
   section: {
     ...typeScale.label,
     color: colors.mist,
+    marginTop: space.sm,
   },
   statusBox: {
     gap: 4,
@@ -184,6 +293,18 @@ const styles = StyleSheet.create({
   statusBody: {
     ...typeScale.body,
     color: colors.mist,
+  },
+  priorityCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.outline,
+    padding: 12,
+    gap: 4,
+  },
+  priorityTitle: {
+    ...typeScale.label,
+    color: colors.foam,
   },
   primaryBtn: {
     backgroundColor: colors.lanternReady,

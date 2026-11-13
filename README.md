@@ -2,7 +2,7 @@
 
 Android / iOS companion app that turns a smartwatch into a voice + notification front-end for Hermes (and other AI backends).
 
-**Phase 0–6 status:** Expo scaffold, Home + settings/profiles, phone-mic STT, Hermes webhook, system TTS, Android default-assistant + HFP mic, FCM registration + notification display.
+**Phase 0–7 status:** Expo scaffold, Home + settings/profiles, phone-mic STT, Hermes webhook, system TTS, Android default-assistant + HFP mic, FCM registration + display, priority-based notification speech.
 
 ## Disk layout (E:)
 
@@ -29,6 +29,7 @@ npm run test:webhook
 npm run test:tts
 npm run test:audio
 npm run test:notifications
+npm run test:priority-speech
 npx expo start
 ```
 
@@ -47,46 +48,40 @@ copy GoogleService-Info.plist.example GoogleService-Info.plist
 
 `app.config.js` wires `googleServicesFile` only when those files exist (they are gitignored).
 
-3. Rebuild the **development client** (Expo Go is not enough for full FCM):
+3. Rebuild the **development client** (Expo Go is not enough for full FCM).
 
-```powershell
-robocopy "E:\Stero Wrist" E:\sw /MIR /XD .git .expo android\app\.cxx android\app\build android\build
-cd E:\sw
-npx expo prebuild --platform android
-npx expo run:android
-```
+4. Settings → Notifications → set **Hermes device token URL** → enable FCM → **Register now**.
 
-4. In the app: Settings → Notifications → set **Hermes device token URL** → enable FCM → **Register now**.
-5. Hermes should POST to that URL with the device token (illustrative contract in Phase 6 code), then send FCM data/notification payloads with `type: "hermes_notification"`.
+### Priority speech (Phase 7)
 
-Voice webhook and FCM remain separate systems. **Notification Only** mode disables voice but keeps FCM when enabled.
+- Defaults: **critical/high speak**; **normal/low** display only.
+- Quiet hours suppress speech (critical may still speak if enabled).
+- Alerts **never cancel** a voice session. Critical can interrupt assistant TTS while `SPEAKING`; otherwise speech queues until Idle.
+- Tap after auto-speak does **not** double-speak (`notification_id` dedupe).
+- Payload `speak: false` suppresses speech even when the priority rule allows it.
+- OS DND still owns channel sound; Android critical channel may bypass DND for display.
 
-### Manual FCM checklist
+Manual checks:
 
-- [ ] `google-services.json` present; app rebuilt
-- [ ] Device token URL set; Register now → Home Notify lantern **ready**
-- [ ] App backgrounded → Hermes FCM push → system notification shown
-- [ ] Malformed payload ignored (no crash)
-- [ ] Token refresh re-registers with Hermes
-- [ ] FCM off → lantern **off**; voice path unchanged
+- [ ] Critical while Idle → spoken
+- [ ] High while Listening → spoken after Idle
+- [ ] Critical while Speaking → interrupts TTS reply
+- [ ] Quiet hours → high silent; critical speaks (exception on)
+- [ ] Tap after auto-speak → no second utterance
 
 ### Phase 2–5 voice (dev client)
 
 STT: `expo-speech-recognition`. TTS: `expo-speech`. Watch button: `stero-assistant` VoiceInteraction + HFP/SCO.
 
-Configure an active **backend profile** before Activate. Production builds reject `http://` webhook URLs; `__DEV__` allows them.
-
 ## Features so far
 
-### Phase 1–5
-- Home ChannelStrip, profiles, webhook, STT, system TTS, Android assistant role + mic routing, iOS `stero-wrist://activate`
+### Phase 1–6
+- Home ChannelStrip, profiles, webhook, STT, system TTS, Android assistant role + mic routing, FCM token + channels
 
-### Phase 6
-- `expo-notifications` + Firebase config files
-- Device token → Hermes `deviceTokenUrl` (active profile auth)
-- Priority Android channels / iOS categories
-- Payload validation; `speak` ignored until Phase 7
-- Live Home notify status
+### Phase 7
+- Per-priority notify/speak overrides, quiet hours, speech volume
+- Session-aware notification speech queue + critical TTS interrupt
+- Spoken-id dedupe (no double-speak on tap)
 
 ## Docs
 

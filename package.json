@@ -15,7 +15,8 @@
     "test:webhook": "node scripts/verify-webhook.mjs",
     "test:tts": "node scripts/verify-tts.mjs",
     "test:audio": "node scripts/verify-audio-route.mjs",
-    "test:notifications": "node scripts/verify-notifications.mjs"
+    "test:notifications": "node scripts/verify-notifications.mjs",
+    "test:priority-speech": "node scripts/verify-priority-speech.mjs"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",

@@ -40,6 +40,10 @@ export class SystemTtsProvider implements TtsProvider {
         },
       };
 
+      if (typeof options.volume === 'number' && Number.isFinite(options.volume)) {
+        speakOptions.volume = Math.min(1, Math.max(0, options.volume));
+      }
+
       if (options.voice && options.voice !== 'default') {
         speakOptions.voice = options.voice;
       }

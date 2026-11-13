@@ -8,8 +8,9 @@ export type TtsEventKind =
   | 'notification_low';
 
 /**
- * Per-event TTS policy stubs.
- * Phase 4 only speaks assistant_response; notification keys reserved for Phase 7.
+ * Per-event TTS policy map.
+ * Whether a notification is spoken is gated by priorityPolicy (Phase 7);
+ * this map selects provider id (cloud still falls back to system until Phase 9).
  */
 export type TtsPolicyMap = Record<TtsEventKind, TtsProviderId | 'silent'>;
 
@@ -17,20 +18,19 @@ export const DEFAULT_TTS_POLICY: TtsPolicyMap = {
   assistant_response: 'system',
   notification_critical: 'system',
   notification_high: 'system',
-  notification_normal: 'silent',
-  notification_low: 'silent',
+  notification_normal: 'system',
+  notification_low: 'system',
 };
 
 export function resolvePolicyProvider(
   event: TtsEventKind,
   settingsProvider: TtsProviderId,
-  policy: TtsPolicyMap = DEFAULT_TTS_POLICY,
+  _policy: TtsPolicyMap = DEFAULT_TTS_POLICY,
 ): TtsProviderId | 'silent' {
-  if (event === 'assistant_response') {
-    // Assistant replies follow the user's selected provider setting.
-    return settingsProvider;
-  }
-  return policy[event];
+  // Provider selection follows user TTS setting; priority engine gates speak.
+  void _policy;
+  void event;
+  return settingsProvider;
 }
 
 export function shouldSpeak(provider: TtsProviderId | 'silent'): boolean {

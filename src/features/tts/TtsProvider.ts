@@ -2,6 +2,8 @@ export type TtsOptions = {
   language: string;
   voice: string;
   speed: number;
+  /** 0..1 — system TTS volume when supported. */
+  volume?: number;
 };
 
 export type AudioResult = {
@@ -21,11 +23,17 @@ export function ttsOptionsFromSettings(settings: {
   language: string;
   voice: string;
   speed: number;
+  volume?: number;
 }): TtsOptions {
+  const volume =
+    typeof settings.volume === 'number' && Number.isFinite(settings.volume)
+      ? Math.min(1, Math.max(0, settings.volume))
+      : undefined;
   return {
     language: settings.language || 'en-US',
     voice: settings.voice || 'default',
     speed: Number.isFinite(settings.speed) && settings.speed > 0 ? settings.speed : 1,
+    ...(volume !== undefined ? { volume } : {}),
   };
 }
 

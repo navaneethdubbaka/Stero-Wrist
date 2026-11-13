@@ -56,11 +56,38 @@ export type TtsSettings = {
   apiKeySecretId?: string;
 };
 
+export type NotificationPriority = 'critical' | 'high' | 'normal' | 'low';
+
+export type PriorityNotifyRule = {
+  notify: boolean;
+  speak: boolean;
+};
+
 export type NotificationSettings = {
   fcmEnabled: boolean;
   /** Full URL for Hermes device-token registration (separate from voice webhook). */
   deviceTokenUrl: string;
+  priorityRules: Record<NotificationPriority, PriorityNotifyRule>;
+  quietHoursEnabled: boolean;
+  /** Local time HH:mm */
+  quietHoursStart: string;
+  quietHoursEnd: string;
+  criticalDuringQuietHours: boolean;
+  /** 0..1 passed to system TTS */
+  speechVolume: number;
 };
+
+export function createDefaultPriorityRules(): Record<
+  NotificationPriority,
+  PriorityNotifyRule
+> {
+  return {
+    critical: { notify: true, speak: true },
+    high: { notify: true, speak: true },
+    normal: { notify: true, speak: false },
+    low: { notify: true, speak: false },
+  };
+}
 
 /** Mic preference — actual route is probed at listen time. */
 export type AudioInputPreference = 'auto' | 'watch' | 'phone';
@@ -125,6 +152,12 @@ export function createDefaultSettings(): AppSettings {
     notifications: {
       fcmEnabled: false,
       deviceTokenUrl: '',
+      priorityRules: createDefaultPriorityRules(),
+      quietHoursEnabled: false,
+      quietHoursStart: '22:00',
+      quietHoursEnd: '07:00',
+      criticalDuringQuietHours: true,
+      speechVolume: 1,
     },
     audio: {
       inputDevice: 'auto',

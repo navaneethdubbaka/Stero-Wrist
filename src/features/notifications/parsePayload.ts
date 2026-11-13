@@ -25,20 +25,27 @@ export function parseHermesNotification(data: unknown): HermesNotification | nul
     typeof obj.notification_id === 'string' ? obj.notification_id.trim() : '';
   const title = typeof obj.title === 'string' ? obj.title.trim() : '';
   const message = typeof obj.message === 'string' ? obj.message.trim() : '';
-  const priorityRaw =
-    typeof obj.priority === 'string' ? obj.priority.trim().toLowerCase() : '';
+
+  // Presentation priority (ignore FCM transport priority).
+  const presentation =
+    typeof obj.presentation_priority === 'string'
+      ? obj.presentation_priority.trim().toLowerCase()
+      : typeof obj.priority === 'string'
+        ? obj.priority.trim().toLowerCase()
+        : '';
 
   if (!notification_id || !title || !message) return null;
-  if (!PRIORITIES.has(priorityRaw as NotificationPriority)) return null;
+  if (!PRIORITIES.has(presentation as NotificationPriority)) return null;
 
-  const speak = obj.speak === true;
+  // Explicit false suppresses; missing/true allows (user overrides still apply).
+  const speak = obj.speak !== false;
 
   return {
     type: 'hermes_notification',
     notification_id,
     title,
     message,
-    priority: priorityRaw as NotificationPriority,
+    priority: presentation as NotificationPriority,
     speak,
     timestamp: typeof obj.timestamp === 'string' ? obj.timestamp : undefined,
     source: typeof obj.source === 'string' ? obj.source : undefined,

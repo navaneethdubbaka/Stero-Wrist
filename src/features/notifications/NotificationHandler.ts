@@ -15,31 +15,47 @@ import {
   channelIdForPriority,
   ensureNotificationChannels,
 } from './notificationChannels';
+import {
+  enqueueOrSpeak,
+  startVoiceIdleDrainSubscription,
+} from './notificationSpeech';
 import { useNotificationsStore } from './notificationsStore';
 import {
   extractPushData,
   parseHermesNotification,
 } from './parsePayload';
+import {
+  shouldShowNotification,
+  shouldSpeakNotification,
+} from './priorityPolicy';
 import { registerDeviceToken } from './registerDeviceToken';
+import { wasAlreadySpoken } from './spokenDedupe';
 import type { HermesNotification } from './types';
 
 let bootstrapped = false;
 let tokenSub: { remove: () => void } | null = null;
 let receivedSub: { remove: () => void } | null = null;
+let responseSub: { remove: () => void } | null = null;
+let stopDrain: (() => void) | null = null;
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
+  handleNotification: async (notification) => {
+    const data = notification.request.content.data ?? {};
+    const priority =
+      typeof data.priority === 'string' ? data.priority.toLowerCase() : '';
+    const low = priority === 'low';
+    return {
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: !low,
+      shouldSetBadge: false,
+    };
+  },
 });
 
 export async function presentHermesNotification(
   note: HermesNotification,
 ): Promise<void> {
-  // speak is ignored until Phase 7
   await ensureNotificationChannels();
   await Notifications.scheduleNotificationAsync({
     content: {
@@ -74,15 +90,36 @@ function handleIncomingNotification(
     return;
   }
 
-  // Background/OS may already display a system notification for notification+data.
-  // Present again only when we need channel routing from a data-only message
-  // (no title/body on the OS notification).
+  const settings = useSettingsStore.getState().settings.notifications;
+
   const hasOsBody =
     Boolean(notification.request.content.title) ||
     Boolean(notification.request.content.body);
-  if (!hasOsBody) {
+
+  if (!hasOsBody && shouldShowNotification(parsed, settings)) {
     void presentHermesNotification(parsed);
   }
+
+  void enqueueOrSpeak(parsed);
+}
+
+function handleNotificationResponse(
+  response: Notifications.NotificationResponse,
+): void {
+  const raw = extractPushData(response.notification.request.content);
+  const parsed = parseHermesNotification(raw);
+  if (!parsed) return;
+
+  if (wasAlreadySpoken(parsed.notification_id)) {
+    return;
+  }
+
+  const settings = useSettingsStore.getState().settings.notifications;
+  if (!shouldSpeakNotification(parsed, settings)) {
+    return;
+  }
+
+  void enqueueOrSpeak(parsed);
 }
 
 export async function syncFcmRegistration(): Promise<void> {
@@ -144,7 +181,7 @@ export async function disableFcmRegistration(): Promise<void> {
 }
 
 /**
- * Boot once: channels, listeners, and register if FCM enabled.
+ * Boot once: channels, listeners, speech drain, and register if FCM enabled.
  */
 export function startNotificationListeners(): () => void {
   if (bootstrapped) {
@@ -153,10 +190,17 @@ export function startNotificationListeners(): () => void {
   bootstrapped = true;
 
   void ensureNotificationChannels();
+  stopDrain = startVoiceIdleDrainSubscription();
 
   receivedSub = Notifications.addNotificationReceivedListener((notification) => {
     handleIncomingNotification(notification);
   });
+
+  responseSub = Notifications.addNotificationResponseReceivedListener(
+    (response) => {
+      handleNotificationResponse(response);
+    },
+  );
 
   tokenSub = addDevicePushTokenListener((token) => {
     const enabled = useSettingsStore.getState().settings.notifications.fcmEnabled;
@@ -201,8 +245,12 @@ export function startNotificationListeners(): () => void {
   return () => {
     bootstrapped = false;
     receivedSub?.remove();
+    responseSub?.remove();
     tokenSub?.remove();
+    stopDrain?.();
     receivedSub = null;
+    responseSub = null;
     tokenSub = null;
+    stopDrain = null;
   };
 }

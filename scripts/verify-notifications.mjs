@@ -29,7 +29,7 @@ function parseHermesNotification(data) {
     title,
     message,
     priority: priorityRaw,
-    speak: data.speak === true,
+    speak: data.speak !== false,
   };
 }
 
@@ -69,7 +69,16 @@ const valid = parseHermesNotification({
 });
 assert('valid parse', valid != null);
 assert('valid id', valid?.notification_id === 'notification-001');
-assert('speak false', valid?.speak === false);
+assert('speak explicit false', valid?.speak === false);
+
+const missingSpeak = parseHermesNotification({
+  type: 'hermes_notification',
+  notification_id: 'n0',
+  title: 'T',
+  message: 'M',
+  priority: 'high',
+});
+assert('speak default allow', missingSpeak?.speak === true);
 
 const critical = parseHermesNotification({
   type: 'hermes_notification',

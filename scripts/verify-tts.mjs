@@ -16,17 +16,10 @@ function ttsOptionsFromSettings(settings) {
   };
 }
 
-const DEFAULT_TTS_POLICY = {
-  assistant_response: 'system',
-  notification_critical: 'system',
-  notification_high: 'system',
-  notification_normal: 'silent',
-  notification_low: 'silent',
-};
-
-function resolvePolicyProvider(event, settingsProvider, policy = DEFAULT_TTS_POLICY) {
-  if (event === 'assistant_response') return settingsProvider;
-  return policy[event];
+function resolvePolicyProvider(event, settingsProvider) {
+  // Phase 7: priority engine gates speak; provider follows settings.
+  void event;
+  return settingsProvider;
 }
 
 function shouldSpeak(provider) {
@@ -69,12 +62,12 @@ assert(
   resolvePolicyProvider('assistant_response', 'openai') === 'openai',
 );
 assert(
-  'normal notify silent',
-  resolvePolicyProvider('notification_normal', 'system') === 'silent',
+  'normal notify follows settings',
+  resolvePolicyProvider('notification_normal', 'system') === 'system',
 );
 assert(
-  'critical notify system',
-  resolvePolicyProvider('notification_critical', 'openai') === 'system',
+  'critical notify follows settings',
+  resolvePolicyProvider('notification_critical', 'openai') === 'openai',
 );
 
 const cloud = resolveTtsProvider('openai');
