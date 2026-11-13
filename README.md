@@ -2,7 +2,7 @@
 
 Android / iOS companion app that turns a smartwatch into a voice + notification front-end for Hermes (and other AI backends).
 
-**Phase 0–2 status:** Expo scaffold, Home + settings/profiles, phone-mic voice session (STT) with mock Hermes reply.
+**Phase 0–3 status:** Expo scaffold, Home + settings/profiles, phone-mic STT, live Hermes webhook (TTS still stubbed until Phase 4).
 
 ## Disk layout (E:)
 
@@ -24,13 +24,16 @@ powershell -ExecutionPolicy Bypass -File "E:\Stero Wrist\scripts\setup-e-drive-e
 cd "E:\Stero Wrist"
 npm install
 npx tsc --noEmit
-node scripts/verify-voice-machine.mjs
+npm run test:voice
+npm run test:webhook
 npx expo start
 ```
 
-### Phase 2 — voice on a real device
+### Phase 2–3 — voice + Hermes on a real device
 
 STT uses **`expo-speech-recognition`** (platform SpeechRecognizer / SFSpeechRecognizer). It needs a **development client**, not Expo Go.
+
+Configure an active **backend profile** (HTTPS webhook URL + token) before Activate. Phase 3 sends the transcript via HTTP and shows the mapped response. Production builds reject `http://` URLs; development allows them for local Hermes.
 
 1. Enable Windows **LongPathsEnabled** if CMake `ninja mkdir` fails.
 2. Prefer a **short path without spaces** for native builds:
@@ -44,9 +47,9 @@ npx expo prebuild --platform android
 npx expo run:android
 ```
 
-3. On the device: open Stero Wrist → **Activate assistant** → allow mic → speak → see transcript → mock reply → Idle. **Cancel** returns to Idle.
+3. On the device: open Stero Wrist → set up Hermes profile → **Activate assistant** → allow mic → speak → see transcript → Hermes reply → Idle. Failed sends offer **Retry last request**. **Cancel** returns to Idle.
 
-Webhook HTTP and real TTS remain stubbed until Phases 3–4.
+Real TTS playback arrives in Phase 4.
 
 ### Android native build note
 
@@ -62,8 +65,13 @@ Deep New Architecture CMake paths often break on Windows (`ninja: error: mkdir(.
 ### Phase 2
 - Pure voice state machine (`IDLE → … → SPEAKING → IDLE`)
 - Phone-mic STT via `expo-speech-recognition`
-- Home **Activate assistant** / Cancel / transcript / mock reply
+- Home **Activate assistant** / Cancel / transcript
 - Silence threshold from Assistant settings (Android RecognizerIntent)
+
+### Phase 3
+- Hermes webhook client (template, auth, timeout, retry, response mapping)
+- Session IDs; HTTPS enforced outside `__DEV__`
+- Home shows real **Last reply**; **Retry last request** on send failures
 
 ## Docs
 

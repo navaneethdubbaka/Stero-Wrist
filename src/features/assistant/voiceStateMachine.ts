@@ -9,23 +9,27 @@ export type VoiceState =
   | 'ERROR';
 
 export type VoiceEvent =
-  | { type: 'ACTIVATE' }
+  | { type: 'ACTIVATE'; sessionId?: string }
   | { type: 'STT_STARTED' }
   | { type: 'SPEECH_ENDED' }
   | { type: 'TRANSCRIPT_FINAL'; transcript: string }
   | { type: 'TRANSCRIPT_EMPTY' }
   | { type: 'CANCEL' }
-  | { type: 'MOCK_SENT' }
-  | { type: 'MOCK_REPLY'; reply: string }
-  | { type: 'MOCK_SPEAK_DONE' }
-  | { type: 'FAIL'; message: string }
-  | { type: 'DISMISS_ERROR' };
+  | { type: 'REQUEST_SENT' }
+  | { type: 'RESPONSE_RECEIVED'; reply: string; sessionId?: string }
+  | { type: 'SPEAK_DONE' }
+  | { type: 'FAIL'; message: string; failedSend?: boolean }
+  | { type: 'DISMISS_ERROR' }
+  | { type: 'RETRY_SEND' };
 
 export type VoiceMachineContext = {
   partialTranscript: string;
   finalTranscript: string;
   lastReply: string;
   errorMessage: string | null;
+  /** True when ERROR came from a failed webhook send (enables retry). */
+  failedSend: boolean;
+  sessionId: string;
   transitionLog: string[];
 };
 
@@ -40,6 +44,8 @@ export function createInitialContext(): VoiceMachineContext {
     finalTranscript: '',
     lastReply: '',
     errorMessage: null,
+    failedSend: false,
+    sessionId: '',
     transitionLog: [],
   };
 }
@@ -86,6 +92,9 @@ export function reduceVoice(
               partialTranscript: '',
               finalTranscript: '',
               errorMessage: null,
+              failedSend: false,
+              lastReply: '',
+              sessionId: event.sessionId ?? context.sessionId,
             },
             state,
             event.type,
@@ -116,7 +125,11 @@ export function reduceVoice(
         return {
           state: next,
           context: logTransition(
-            { ...context, errorMessage: event.message },
+            {
+              ...context,
+              errorMessage: event.message,
+              failedSend: !!event.failedSend,
+            },
             state,
             event.type,
             next,
@@ -207,7 +220,11 @@ export function reduceVoice(
         return {
           state: next,
           context: logTransition(
-            { ...context, errorMessage: event.message },
+            {
+              ...context,
+              errorMessage: event.message,
+              failedSend: !!event.failedSend,
+            },
             state,
             event.type,
             next,
@@ -282,7 +299,11 @@ export function reduceVoice(
         return {
           state: next,
           context: logTransition(
-            { ...context, errorMessage: event.message },
+            {
+              ...context,
+              errorMessage: event.message,
+              failedSend: !!event.failedSend,
+            },
             state,
             event.type,
             next,
@@ -293,7 +314,7 @@ export function reduceVoice(
     }
 
     case 'SENDING': {
-      if (event.type === 'MOCK_SENT') {
+      if (event.type === 'REQUEST_SENT') {
         const next: VoiceState = 'WAITING_RESPONSE';
         return {
           state: next,
@@ -305,7 +326,11 @@ export function reduceVoice(
         return {
           state: next,
           context: logTransition(
-            { ...context, errorMessage: event.message },
+            {
+              ...context,
+              errorMessage: event.message,
+              failedSend: true,
+            },
             state,
             event.type,
             next,
@@ -323,12 +348,17 @@ export function reduceVoice(
     }
 
     case 'WAITING_RESPONSE': {
-      if (event.type === 'MOCK_REPLY') {
+      if (event.type === 'RESPONSE_RECEIVED') {
         const next: VoiceState = 'SPEAKING';
         return {
           state: next,
           context: logTransition(
-            { ...context, lastReply: event.reply },
+            {
+              ...context,
+              lastReply: event.reply,
+              failedSend: false,
+              sessionId: event.sessionId ?? context.sessionId,
+            },
             state,
             event.type,
             next,
@@ -340,7 +370,11 @@ export function reduceVoice(
         return {
           state: next,
           context: logTransition(
-            { ...context, errorMessage: event.message },
+            {
+              ...context,
+              errorMessage: event.message,
+              failedSend: true,
+            },
             state,
             event.type,
             next,
@@ -358,7 +392,7 @@ export function reduceVoice(
     }
 
     case 'SPEAKING': {
-      if (event.type === 'MOCK_SPEAK_DONE') {
+      if (event.type === 'SPEAK_DONE') {
         const next: VoiceState = 'IDLE';
         return {
           state: next,
@@ -376,6 +410,22 @@ export function reduceVoice(
     }
 
     case 'ERROR': {
+      if (event.type === 'RETRY_SEND' && context.finalTranscript.trim()) {
+        const next: VoiceState = 'SENDING';
+        return {
+          state: next,
+          context: logTransition(
+            {
+              ...context,
+              errorMessage: null,
+              failedSend: false,
+            },
+            state,
+            event.type,
+            next,
+          ),
+        };
+      }
       if (event.type === 'DISMISS_ERROR' || event.type === 'ACTIVATE') {
         const next: VoiceState = event.type === 'ACTIVATE' ? 'ACTIVATED' : 'IDLE';
         const base =
@@ -385,8 +435,11 @@ export function reduceVoice(
                 partialTranscript: '',
                 finalTranscript: '',
                 errorMessage: null,
+                failedSend: false,
+                lastReply: '',
+                sessionId: event.sessionId ?? context.sessionId,
               }
-            : { ...context, errorMessage: null };
+            : { ...context, errorMessage: null, failedSend: false };
         return {
           state: next,
           context: logTransition(base, state, event.type, next),

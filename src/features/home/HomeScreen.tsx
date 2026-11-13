@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Screen } from '../../shared/ui/Screen';
 import { ChannelStrip, type ChannelSegment } from '../../shared/ui/ChannelStrip';
@@ -14,6 +14,7 @@ import {
   activateVoiceSession,
   cancelVoiceSession,
   dismissVoiceError,
+  retryLastTranscript,
 } from '../assistant/VoiceSessionController';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
@@ -120,6 +121,30 @@ export function HomeScreen({ navigation }: Props) {
               <Text style={styles.cancelText}>Cancel</Text>
             </Pressable>
           ) : null}
+          {voiceState === 'ERROR' && snapshot.context.failedSend ? (
+            <Pressable
+              style={styles.activateBtn}
+              onPress={() => {
+                Alert.alert(
+                  'Retry last request',
+                  'Send the last transcript to Hermes again?',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Retry',
+                      onPress: () => {
+                        void retryLastTranscript();
+                      },
+                    },
+                  ],
+                );
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Retry last request"
+            >
+              <Text style={styles.activateText}>Retry last request</Text>
+            </Pressable>
+          ) : null}
           {voiceState === 'ERROR' ? (
             <Pressable
               style={styles.cancelBtn}
@@ -142,15 +167,19 @@ export function HomeScreen({ navigation }: Props) {
           <Text style={styles.placeholder}>
             {voiceBusy
               ? 'Listening for speech…'
-              : 'Tap Activate and speak — phone mic (Phase 2)'}
+              : 'Tap Activate and speak — sends to Hermes webhook'}
           </Text>
         )}
 
         {snapshot.context.lastReply ? (
           <View style={styles.transcriptBox}>
-            <Text style={styles.sectionLabel}>Last reply (mock)</Text>
+            <Text style={styles.sectionLabel}>Last reply</Text>
             <Text style={styles.body}>{snapshot.context.lastReply}</Text>
           </View>
+        ) : null}
+
+        {snapshot.context.sessionId ? (
+          <Text style={styles.meta}>Session {snapshot.context.sessionId}</Text>
         ) : null}
 
         {snapshot.context.errorMessage ? (

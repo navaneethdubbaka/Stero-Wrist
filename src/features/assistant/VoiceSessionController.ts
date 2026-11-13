@@ -1,13 +1,20 @@
+import { useProfilesStore } from '../profiles/profilesStore';
 import { useSettingsStore } from '../settings/settingsStore';
+import {
+  WebhookError,
+  userMessageForWebhookError,
+} from '../webhook/errors';
+import { sendTranscript } from '../webhook/HermesWebhookClient';
+import { createSessionId } from '../webhook/sessionId';
 import type { SttProvider } from './stt/SttProvider';
 import { defaultSttProvider } from './stt/ExpoSpeechSttProvider';
 import { useVoiceSessionStore } from './voiceSessionStore';
 
-const MOCK_SEND_MS = 400;
-const MOCK_SPEAK_MS = 900;
+const SPEAK_STUB_MS = 900;
 
 let timers: ReturnType<typeof setTimeout>[] = [];
 let listening = false;
+let pipelineGeneration = 0;
 
 function clearTimers() {
   for (const t of timers) clearTimeout(t);
@@ -22,26 +29,60 @@ function getSetPartial() {
   return useVoiceSessionStore.getState().setPartial;
 }
 
-function runMockPipeline(transcript: string) {
+async function runWebhookPipeline(transcript: string): Promise<void> {
   const dispatch = getDispatch();
+  const generation = ++pipelineGeneration;
   clearTimers();
 
-  timers.push(
-    setTimeout(() => {
-      dispatch({ type: 'MOCK_SENT' });
-      timers.push(
-        setTimeout(() => {
-          const reply = `Mock Hermes reply to: “${transcript}” (webhook + TTS arrive in Phases 3–4)`;
-          dispatch({ type: 'MOCK_REPLY', reply });
-          timers.push(
-            setTimeout(() => {
-              dispatch({ type: 'MOCK_SPEAK_DONE' });
-            }, MOCK_SPEAK_MS),
+  const profile = useProfilesStore.getState().getActiveProfile();
+  const settings = useSettingsStore.getState().settings;
+  let sessionId = useVoiceSessionStore.getState().snapshot.context.sessionId;
+  if (!sessionId) {
+    sessionId = createSessionId();
+  }
+
+  try {
+    dispatch({ type: 'REQUEST_SENT' });
+
+    const result = await sendTranscript(profile, transcript, {
+      sessionId,
+      mode: settings.assistant.defaultMode,
+      allowHttp: __DEV__,
+    });
+
+    if (generation !== pipelineGeneration) {
+      return;
+    }
+
+    dispatch({
+      type: 'RESPONSE_RECEIVED',
+      reply: result.responseText,
+      sessionId: result.sessionId ?? sessionId,
+    });
+
+    timers.push(
+      setTimeout(() => {
+        if (generation !== pipelineGeneration) return;
+        dispatch({ type: 'SPEAK_DONE' });
+      }, SPEAK_STUB_MS),
+    );
+  } catch (error) {
+    if (generation !== pipelineGeneration) {
+      return;
+    }
+    const wh =
+      error instanceof WebhookError
+        ? error
+        : new WebhookError(
+            'network',
+            error instanceof Error ? error.message : 'Hermes request failed.',
           );
-        }, MOCK_SEND_MS),
-      );
-    }, 200),
-  );
+    dispatch({
+      type: 'FAIL',
+      message: userMessageForWebhookError(wh),
+      failedSend: true,
+    });
+  }
 }
 
 function softSttError(message: string): boolean {
@@ -86,7 +127,7 @@ export async function activateVoiceSession(
   if (settings.assistant.defaultMode !== 'single_request') {
     dispatch({
       type: 'FAIL',
-      message: 'Only Single Request mode is wired in Phase 2.',
+      message: 'Only Single Request mode is wired in Phase 2–3.',
     });
     return;
   }
@@ -97,7 +138,9 @@ export async function activateVoiceSession(
   }
 
   clearTimers();
-  dispatch({ type: 'ACTIVATE' });
+  pipelineGeneration += 1;
+  const sessionId = createSessionId();
+  dispatch({ type: 'ACTIVATE', sessionId });
 
   const perm = await stt.requestPermissions();
   if (!perm.granted) {
@@ -139,10 +182,9 @@ export async function activateVoiceSession(
             return;
           }
           dispatch({ type: 'TRANSCRIPT_FINAL', transcript: trimmed });
-          // Advance through TRANSCRIBING if we only got SPEECH_ENDED path later
           const state = useVoiceSessionStore.getState().snapshot.state;
           if (state === 'SENDING') {
-            runMockPipeline(trimmed);
+            void runWebhookPipeline(trimmed);
           }
         },
         onEnd: () => {
@@ -158,7 +200,7 @@ export async function activateVoiceSession(
             if (text.trim()) {
               dispatch({ type: 'TRANSCRIPT_FINAL', transcript: text });
               if (useVoiceSessionStore.getState().snapshot.state === 'SENDING') {
-                runMockPipeline(text.trim());
+                void runWebhookPipeline(text.trim());
               }
             } else {
               dispatch({ type: 'TRANSCRIPT_EMPTY' });
@@ -172,7 +214,7 @@ export async function activateVoiceSession(
             if (partial.trim()) {
               dispatch({ type: 'TRANSCRIPT_FINAL', transcript: partial });
               if (useVoiceSessionStore.getState().snapshot.state === 'SENDING') {
-                runMockPipeline(partial.trim());
+                void runWebhookPipeline(partial.trim());
               }
               return;
             }
@@ -195,11 +237,29 @@ export async function activateVoiceSession(
   }
 }
 
+export async function retryLastTranscript(): Promise<void> {
+  const { snapshot } = useVoiceSessionStore.getState();
+  if (snapshot.state !== 'ERROR' || !snapshot.context.failedSend) {
+    return;
+  }
+  const transcript = snapshot.context.finalTranscript.trim();
+  if (!transcript) {
+    return;
+  }
+
+  clearTimers();
+  getDispatch()({ type: 'RETRY_SEND' });
+  if (useVoiceSessionStore.getState().snapshot.state === 'SENDING') {
+    await runWebhookPipeline(transcript);
+  }
+}
+
 export async function cancelVoiceSession(
   deps: VoiceControllerDeps = {},
 ): Promise<void> {
   const stt = deps.stt ?? defaultSttProvider;
   clearTimers();
+  pipelineGeneration += 1;
   listening = false;
   await stt.abort();
   getDispatch()({ type: 'CANCEL' });

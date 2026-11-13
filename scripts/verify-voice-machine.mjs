@@ -9,6 +9,8 @@ function createInitialContext() {
     finalTranscript: '',
     lastReply: '',
     errorMessage: null,
+    failedSend: false,
+    sessionId: '',
     transitionLog: [],
   };
 }
@@ -31,7 +33,15 @@ function reduceVoice(snapshot, event) {
     return {
       state: 'ACTIVATED',
       context: logTransition(
-        { ...context, partialTranscript: '', finalTranscript: '', errorMessage: null },
+        {
+          ...context,
+          partialTranscript: '',
+          finalTranscript: '',
+          errorMessage: null,
+          failedSend: false,
+          lastReply: '',
+          sessionId: event.sessionId ?? context.sessionId,
+        },
         state,
         event.type,
         'ACTIVATED',
@@ -94,34 +104,60 @@ function reduceVoice(snapshot, event) {
       ),
     };
   }
-  if (state === 'SENDING' && event.type === 'MOCK_SENT') {
+  if (state === 'SENDING' && event.type === 'REQUEST_SENT') {
     return {
       state: 'WAITING_RESPONSE',
       context: logTransition(context, state, event.type, 'WAITING_RESPONSE'),
     };
   }
-  if (state === 'WAITING_RESPONSE' && event.type === 'MOCK_REPLY') {
+  if (state === 'WAITING_RESPONSE' && event.type === 'RESPONSE_RECEIVED') {
     return {
       state: 'SPEAKING',
       context: logTransition(
-        { ...context, lastReply: event.reply },
+        {
+          ...context,
+          lastReply: event.reply,
+          sessionId: event.sessionId ?? context.sessionId,
+        },
         state,
         event.type,
         'SPEAKING',
       ),
     };
   }
-  if (state === 'SPEAKING' && event.type === 'MOCK_SPEAK_DONE') {
+  if (state === 'SPEAKING' && event.type === 'SPEAK_DONE') {
     return {
       state: 'IDLE',
       context: logTransition(context, state, event.type, 'IDLE'),
+    };
+  }
+  if (state === 'SENDING' && event.type === 'FAIL') {
+    return {
+      state: 'ERROR',
+      context: logTransition(
+        { ...context, errorMessage: event.message, failedSend: true },
+        state,
+        event.type,
+        'ERROR',
+      ),
+    };
+  }
+  if (state === 'ERROR' && event.type === 'RETRY_SEND' && context.finalTranscript) {
+    return {
+      state: 'SENDING',
+      context: logTransition(
+        { ...context, errorMessage: null, failedSend: false },
+        state,
+        event.type,
+        'SENDING',
+      ),
     };
   }
   if (state === 'LISTENING' && event.type === 'FAIL') {
     return {
       state: 'ERROR',
       context: logTransition(
-        { ...context, errorMessage: event.message },
+        { ...context, errorMessage: event.message, failedSend: !!event.failedSend },
         state,
         event.type,
         'ERROR',
@@ -132,7 +168,7 @@ function reduceVoice(snapshot, event) {
     return {
       state: 'IDLE',
       context: logTransition(
-        { ...context, errorMessage: null },
+        { ...context, errorMessage: null, failedSend: false },
         state,
         event.type,
         'IDLE',
@@ -149,13 +185,13 @@ function run(events) {
 }
 
 const happy = run([
-  { type: 'ACTIVATE' },
+  { type: 'ACTIVATE', sessionId: 'session-abc' },
   { type: 'STT_STARTED' },
   { type: 'SPEECH_ENDED' },
   { type: 'TRANSCRIPT_FINAL', transcript: 'Hello Hermes' },
-  { type: 'MOCK_SENT' },
-  { type: 'MOCK_REPLY', reply: 'Hi there' },
-  { type: 'MOCK_SPEAK_DONE' },
+  { type: 'REQUEST_SENT' },
+  { type: 'RESPONSE_RECEIVED', reply: 'Hi there', sessionId: 'session-abc' },
+  { type: 'SPEAK_DONE' },
 ]);
 
 const cancel = run([
@@ -171,11 +207,16 @@ const empty = run([
   { type: 'TRANSCRIPT_FINAL', transcript: '   ' },
 ]);
 
-const fail = run([
+const failRetry = run([
   { type: 'ACTIVATE' },
   { type: 'STT_STARTED' },
-  { type: 'FAIL', message: 'mic denied' },
-  { type: 'DISMISS_ERROR' },
+  { type: 'SPEECH_ENDED' },
+  { type: 'TRANSCRIPT_FINAL', transcript: 'Status please' },
+  { type: 'FAIL', message: 'timeout', failedSend: true },
+  { type: 'RETRY_SEND' },
+  { type: 'REQUEST_SENT' },
+  { type: 'RESPONSE_RECEIVED', reply: 'OK' },
+  { type: 'SPEAK_DONE' },
 ]);
 
 let failed = 0;
@@ -187,10 +228,12 @@ function assert(name, cond) {
 assert('happy ends IDLE', happy.state === 'IDLE');
 assert('happy transcript', happy.context.finalTranscript === 'Hello Hermes');
 assert('happy reply', happy.context.lastReply === 'Hi there');
+assert('happy session', happy.context.sessionId === 'session-abc');
 assert('happy logged', happy.context.transitionLog.length >= 6);
 assert('cancel IDLE', cancel.state === 'IDLE');
 assert('empty IDLE with message', empty.state === 'IDLE' && !!empty.context.errorMessage);
-assert('fail then dismiss IDLE', fail.state === 'IDLE');
+assert('retry ends IDLE', failRetry.state === 'IDLE');
+assert('retry reply', failRetry.context.lastReply === 'OK');
 
 if (failed) process.exit(1);
 console.log('All voice machine checks passed.');
