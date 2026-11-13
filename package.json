@@ -16,7 +16,8 @@
     "test:tts": "node scripts/verify-tts.mjs",
     "test:audio": "node scripts/verify-audio-route.mjs",
     "test:notifications": "node scripts/verify-notifications.mjs",
-    "test:priority-speech": "node scripts/verify-priority-speech.mjs"
+    "test:priority-speech": "node scripts/verify-priority-speech.mjs",
+    "test:inbox": "node scripts/verify-inbox.mjs"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
@@ -30,6 +31,7 @@
     "expo-secure-store": "~58.0.3",
     "expo-speech": "~58.0.4",
     "expo-speech-recognition": "^58.0.1",
+    "expo-sqlite": "~58.0.17",
     "expo-status-bar": "~58.0.5",
     "react": "^19.3.0",
     "react-native": "^0.88.1",

@@ -9,6 +9,8 @@ export type HermesNotification = {
   speak: boolean;
   timestamp?: string;
   source?: string;
+  /** Optional secondary unique key for duplicate suppression. */
+  dedupe_key?: string;
 };
 
 export type NotifyConnectionStatus = 'off' | 'pending' | 'ready' | 'error';

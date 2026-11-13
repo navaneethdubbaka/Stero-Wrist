@@ -36,6 +36,7 @@ function mergeNotificationSettings(
     ...parsed,
     deviceTokenUrl:
       typeof parsed?.deviceTokenUrl === 'string' ? parsed.deviceTokenUrl : '',
+    ackUrl: typeof parsed?.ackUrl === 'string' ? parsed.ackUrl : '',
     priorityRules,
     quietHoursEnabled: Boolean(parsed?.quietHoursEnabled ?? defaults.quietHoursEnabled),
     quietHoursStart:

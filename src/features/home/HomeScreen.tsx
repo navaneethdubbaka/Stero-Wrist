@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   isDefaultAssistant,
@@ -10,6 +11,8 @@ import { ChannelStrip, type ChannelSegment } from '../../shared/ui/ChannelStrip'
 import { colors, space, touch, type as typeScale } from '../../shared/theme/tokens';
 import { useProfilesStore } from '../profiles/profilesStore';
 import { useSettingsStore } from '../settings/settingsStore';
+import { listInbox } from '../notifications/inboxRepository';
+import type { InboxNotification } from '../notifications/inboxTypes';
 import { useNotificationsStore } from '../notifications/notificationsStore';
 import type { RootStackParamList } from '../../app/navigation';
 import { buildChannelStates } from './channelStatus';
@@ -53,6 +56,7 @@ export function HomeScreen({ navigation }: Props) {
   const micRoute = useVoiceSessionStore((s) => s.micRoute);
   const voiceState = snapshot.state;
   const [assistantRoleOk, setAssistantRoleOk] = useState<boolean | null>(null);
+  const [recentInbox, setRecentInbox] = useState<InboxNotification[]>([]);
 
   useEffect(() => {
     if (Platform.OS !== 'android' || !isSteroAssistantAvailable()) {
@@ -61,6 +65,14 @@ export function HomeScreen({ navigation }: Props) {
     }
     void isDefaultAssistant().then(setAssistantRoleOk);
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void listInbox({ filter: 'all', limit: 3 })
+        .then(setRecentInbox)
+        .catch(() => setRecentInbox([]));
+    }, []),
+  );
 
   const channel = useMemo(
     () => buildChannelStates(activeProfile, settings, voiceState, notifyStatus),
@@ -260,10 +272,24 @@ export function HomeScreen({ navigation }: Props) {
         </Text>
       </View>
 
-      <View style={styles.block}>
+      <Pressable
+        style={styles.block}
+        onPress={() => navigation.navigate('Inbox')}
+        accessibilityRole="button"
+        accessibilityLabel="Open notification inbox"
+      >
         <Text style={styles.sectionLabel}>Recent notifications</Text>
-        <Text style={styles.placeholder}>Inbox arrives in Phase 8</Text>
-      </View>
+        {recentInbox.length === 0 ? (
+          <Text style={styles.placeholder}>No alerts yet — open Inbox</Text>
+        ) : (
+          recentInbox.map((n) => (
+            <Text key={n.notificationId} style={styles.body} numberOfLines={1}>
+              {n.title}
+            </Text>
+          ))
+        )}
+        <Text style={styles.settingsLabel}>Open inbox</Text>
+      </Pressable>
 
       {showSetup ? (
         <Pressable

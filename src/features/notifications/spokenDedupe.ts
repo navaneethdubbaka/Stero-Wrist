@@ -1,4 +1,6 @@
-const MAX = 50;
+import { listRecentSpokenIds } from './inboxRepository';
+
+const MAX = 200;
 const spokenIds: string[] = [];
 const spokenSet = new Set<string>();
 
@@ -14,6 +16,20 @@ export function markSpoken(notificationId: string): void {
   while (spokenIds.length > MAX) {
     const old = spokenIds.shift();
     if (old) spokenSet.delete(old);
+  }
+}
+
+export async function hydrateSpokenFromInbox(): Promise<void> {
+  try {
+    const ids = await listRecentSpokenIds(MAX);
+    for (const id of ids) {
+      if (!spokenSet.has(id)) {
+        spokenSet.add(id);
+        spokenIds.push(id);
+      }
+    }
+  } catch {
+    // DB may be unavailable in tests / web.
   }
 }
 

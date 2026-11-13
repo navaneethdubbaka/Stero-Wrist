@@ -40,6 +40,11 @@ export function parseHermesNotification(data: unknown): HermesNotification | nul
   // Explicit false suppresses; missing/true allows (user overrides still apply).
   const speak = obj.speak !== false;
 
+  const dedupe_key =
+    typeof obj.dedupe_key === 'string' && obj.dedupe_key.trim()
+      ? obj.dedupe_key.trim()
+      : undefined;
+
   return {
     type: 'hermes_notification',
     notification_id,
@@ -49,6 +54,7 @@ export function parseHermesNotification(data: unknown): HermesNotification | nul
     speak,
     timestamp: typeof obj.timestamp === 'string' ? obj.timestamp : undefined,
     source: typeof obj.source === 'string' ? obj.source : undefined,
+    dedupe_key,
   };
 }
 

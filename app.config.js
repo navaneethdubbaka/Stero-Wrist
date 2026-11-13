@@ -35,6 +35,7 @@ module.exports = ({ config }) => {
         },
       ],
       'expo-device',
+      'expo-sqlite',
     ],
   };
 };

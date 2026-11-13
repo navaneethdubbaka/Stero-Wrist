@@ -6,22 +6,29 @@ export type RequestTemplateVars = {
   session_id: string;
   mode: string;
   timestamp: string;
+  /** Embedded as raw JSON (object or null) via {{context}}. */
+  context?: Record<string, unknown> | null;
 };
 
 export function fillTemplatePlaceholders(
   template: string,
   vars: RequestTemplateVars,
 ): string {
+  const contextJson =
+    vars.context === undefined || vars.context === null
+      ? 'null'
+      : JSON.stringify(vars.context);
+
   return template
     .replaceAll('{{text}}', jsonEscape(vars.text))
     .replaceAll('{{session_id}}', jsonEscape(vars.session_id))
     .replaceAll('{{mode}}', jsonEscape(vars.mode))
-    .replaceAll('{{timestamp}}', jsonEscape(vars.timestamp));
+    .replaceAll('{{timestamp}}', jsonEscape(vars.timestamp))
+    .replaceAll('{{context}}', contextJson);
 }
 
 function jsonEscape(value: string): string {
   // Insert as JSON string content without surrounding quotes when template already quotes.
-  // Templates use "{{text}}" inside JSON strings, so escape for JSON string body.
   return value
     .replace(/\\/g, '\\\\')
     .replace(/"/g, '\\"')
@@ -34,7 +41,10 @@ export function buildWebhookBody(
   webhook: WebhookConfig,
   vars: RequestTemplateVars,
 ): unknown {
-  const filled = fillTemplatePlaceholders(webhook.requestTemplate, vars);
+  const filled = fillTemplatePlaceholders(webhook.requestTemplate, {
+    ...vars,
+    context: vars.context ?? null,
+  });
   try {
     return JSON.parse(filled);
   } catch {
@@ -60,7 +70,6 @@ export function buildWebhookHeaders(
   } else if (webhook.authType === 'api_key' && token) {
     headers['X-Api-Key'] = token;
   }
-  // authType 'header' / 'none': rely on webhook.headers (+ optional token unused)
 
   return headers;
 }

@@ -2,7 +2,7 @@
 
 Android / iOS companion app that turns a smartwatch into a voice + notification front-end for Hermes (and other AI backends).
 
-**Phase 0–7 status:** Expo scaffold, Home + settings/profiles, phone-mic STT, Hermes webhook, system TTS, Android default-assistant + HFP mic, FCM registration + display, priority-based notification speech.
+**Phase 0–8 status:** Scaffold through FCM + priority speech, plus SQLite notification inbox (filters, dedupe, batching, Ask Hermes with context).
 
 ## Disk layout (E:)
 
@@ -30,58 +30,44 @@ npm run test:tts
 npm run test:audio
 npm run test:notifications
 npm run test:priority-speech
+npm run test:inbox
 npx expo start
 ```
 
-### Firebase (Phase 6)
+Dev client rebuild required for native modules (`expo-sqlite`, FCM, speech, assistant).
 
-1. Create a Firebase project and add Android (`com.sterowrist.app`) / iOS apps.
-2. Download config files and place them at the project root:
+### Firebase + FCM (Phase 6)
 
-```powershell
-copy google-services.json.example google-services.json
-# replace with the real Firebase Android file
-
-copy GoogleService-Info.plist.example GoogleService-Info.plist
-# replace with the real Firebase iOS file
-```
-
-`app.config.js` wires `googleServicesFile` only when those files exist (they are gitignored).
-
-3. Rebuild the **development client** (Expo Go is not enough for full FCM).
-
-4. Settings → Notifications → set **Hermes device token URL** → enable FCM → **Register now**.
+Copy real `google-services.json` / `GoogleService-Info.plist` from the `*.example` files, then rebuild. Settings → Notifications → device token URL → Register now.
 
 ### Priority speech (Phase 7)
 
-- Defaults: **critical/high speak**; **normal/low** display only.
-- Quiet hours suppress speech (critical may still speak if enabled).
-- Alerts **never cancel** a voice session. Critical can interrupt assistant TTS while `SPEAKING`; otherwise speech queues until Idle.
-- Tap after auto-speak does **not** double-speak (`notification_id` dedupe).
-- Payload `speak: false` suppresses speech even when the priority rule allows it.
-- OS DND still owns channel sound; Android critical channel may bypass DND for display.
+Critical/high speak by default; quiet hours; session-aware queue (critical can interrupt TTS). Tap after auto-speak does not double-speak.
+
+### Inbox (Phase 8)
+
+- Home **Recent notifications** / Settings → **Notification inbox**
+- Filters: All / Critical / High / Normal / Low / Unread / Acknowledged + search
+- Duplicate `notification_id` or `dedupe_key` → no re-speak
+- ≥3 same `source` within 10 minutes → batch summary row
+- Detail actions: Acknowledge, Dismiss (confirm), Remind later, Ask Hermes (confirm + webhook `context.notification_id`)
+- Optional **Delivery ack URL** for received/displayed/spoken/acked/dismissed
 
 Manual checks:
 
-- [ ] Critical while Idle → spoken
-- [ ] High while Listening → spoken after Idle
-- [ ] Critical while Speaking → interrupts TTS reply
-- [ ] Quiet hours → high silent; critical speaks (exception on)
-- [ ] Tap after auto-speak → no second utterance
-
-### Phase 2–5 voice (dev client)
-
-STT: `expo-speech-recognition`. TTS: `expo-speech`. Watch button: `stero-assistant` VoiceInteraction + HFP/SCO.
+- [ ] Duplicate FCM id not re-spoken
+- [ ] Filter Unread / search works
+- [ ] Acknowledge + Dismiss
+- [ ] Ask Hermes sends context and shows reply
+- [ ] Remind later schedules a local notification
 
 ## Features so far
 
-### Phase 1–6
-- Home ChannelStrip, profiles, webhook, STT, system TTS, Android assistant role + mic routing, FCM token + channels
+### Phase 1–7
+- ChannelStrip, profiles, webhook, STT, system TTS, Android assistant + HFP, FCM, priority speech
 
-### Phase 7
-- Per-priority notify/speak overrides, quiet hours, speech volume
-- Session-aware notification speech queue + critical TTS interrupt
-- Spoken-id dedupe (no double-speak on tap)
+### Phase 8
+- `expo-sqlite` inbox, durable spoken IDs, batching, Ask Hermes context, optional ack hooks
 
 ## Docs
 

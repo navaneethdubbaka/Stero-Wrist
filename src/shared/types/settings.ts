@@ -67,6 +67,8 @@ export type NotificationSettings = {
   fcmEnabled: boolean;
   /** Full URL for Hermes device-token registration (separate from voice webhook). */
   deviceTokenUrl: string;
+  /** Optional delivery ack endpoint (received/displayed/spoken/acked/dismissed). */
+  ackUrl: string;
   priorityRules: Record<NotificationPriority, PriorityNotifyRule>;
   quietHoursEnabled: boolean;
   /** Local time HH:mm */
@@ -111,7 +113,8 @@ export const DEFAULT_REQUEST_TEMPLATE = `{
   "source": "stero-wrist",
   "session_id": "{{session_id}}",
   "mode": "{{mode}}",
-  "timestamp": "{{timestamp}}"
+  "timestamp": "{{timestamp}}",
+  "context": {{context}}
 }`;
 
 export function createDefaultWebhook(): WebhookConfig {
@@ -152,6 +155,7 @@ export function createDefaultSettings(): AppSettings {
     notifications: {
       fcmEnabled: false,
       deviceTokenUrl: '',
+      ackUrl: '',
       priorityRules: createDefaultPriorityRules(),
       quietHoursEnabled: false,
       quietHoursStart: '22:00',

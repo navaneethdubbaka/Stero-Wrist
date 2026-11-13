@@ -3,6 +3,7 @@ import * as Notifications from 'expo-notifications';
 import { useProfilesStore } from '../profiles/profilesStore';
 import { useSettingsStore } from '../settings/settingsStore';
 import { userMessageForWebhookError, WebhookError } from '../webhook/errors';
+import { postDeliveryAck } from './deliveryAck';
 import {
   addDevicePushTokenListener,
   clearPersistedDeviceToken,
@@ -10,11 +11,13 @@ import {
   persistDeviceToken,
   requestNotificationPermissions,
 } from './fcmClient';
+import { upsertIncoming, setDeliveryStatus } from './inboxRepository';
 import {
   categoryIdForPriority,
   channelIdForPriority,
   ensureNotificationChannels,
 } from './notificationChannels';
+import { maybeBatchAfterInsert } from './notificationBatching';
 import {
   enqueueOrSpeak,
   startVoiceIdleDrainSubscription,
@@ -29,7 +32,10 @@ import {
   shouldSpeakNotification,
 } from './priorityPolicy';
 import { registerDeviceToken } from './registerDeviceToken';
-import { wasAlreadySpoken } from './spokenDedupe';
+import {
+  hydrateSpokenFromInbox,
+  wasAlreadySpoken,
+} from './spokenDedupe';
 import type { HermesNotification } from './types';
 
 let bootstrapped = false;
@@ -67,6 +73,7 @@ export async function presentHermesNotification(
         priority: note.priority,
         speak: note.speak,
         source: note.source ?? '',
+        dedupe_key: note.dedupe_key ?? '',
       },
       ...(note.priority === 'low' ? {} : { sound: true as const }),
       ...(Platform.OS === 'android'
@@ -75,6 +82,42 @@ export async function presentHermesNotification(
     },
     trigger: null,
   });
+}
+
+async function ingestParsedNotification(
+  parsed: HermesNotification,
+  options: { hasOsBody: boolean },
+): Promise<void> {
+  const settings = useSettingsStore.getState().settings.notifications;
+
+  let isDuplicate = false;
+  try {
+    const result = await upsertIncoming(parsed, {
+      dedupeKey: parsed.dedupe_key ?? null,
+      raw: parsed,
+    });
+    isDuplicate = result.isDuplicate;
+    void postDeliveryAck(result.row.notificationId, 'received');
+
+    if (!options.hasOsBody && shouldShowNotification(parsed, settings)) {
+      await presentHermesNotification(parsed);
+      await setDeliveryStatus(result.row.notificationId, 'displayed');
+      void postDeliveryAck(result.row.notificationId, 'displayed');
+    }
+
+    if (!isDuplicate) {
+      await maybeBatchAfterInsert(result.row);
+    }
+  } catch (error) {
+    if (__DEV__) {
+      // eslint-disable-next-line no-console
+      console.log('[inbox] upsert failed', error);
+    }
+  }
+
+  if (!isDuplicate) {
+    void enqueueOrSpeak(parsed);
+  }
 }
 
 function handleIncomingNotification(
@@ -90,17 +133,11 @@ function handleIncomingNotification(
     return;
   }
 
-  const settings = useSettingsStore.getState().settings.notifications;
-
   const hasOsBody =
     Boolean(notification.request.content.title) ||
     Boolean(notification.request.content.body);
 
-  if (!hasOsBody && shouldShowNotification(parsed, settings)) {
-    void presentHermesNotification(parsed);
-  }
-
-  void enqueueOrSpeak(parsed);
+  void ingestParsedNotification(parsed, { hasOsBody });
 }
 
 function handleNotificationResponse(
@@ -181,7 +218,7 @@ export async function disableFcmRegistration(): Promise<void> {
 }
 
 /**
- * Boot once: channels, listeners, speech drain, and register if FCM enabled.
+ * Boot once: channels, inbox hydrate, listeners, speech drain, FCM register.
  */
 export function startNotificationListeners(): () => void {
   if (bootstrapped) {
@@ -190,6 +227,7 @@ export function startNotificationListeners(): () => void {
   bootstrapped = true;
 
   void ensureNotificationChannels();
+  void hydrateSpokenFromInbox();
   stopDrain = startVoiceIdleDrainSubscription();
 
   receivedSub = Notifications.addNotificationReceivedListener((notification) => {

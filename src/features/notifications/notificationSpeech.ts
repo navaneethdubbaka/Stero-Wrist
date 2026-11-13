@@ -8,6 +8,8 @@ import {
 } from '../tts/resolveTtsProvider';
 import { ttsOptionsFromSettings } from '../tts/TtsProvider';
 import type { TtsEventKind } from '../tts/ttsPolicy';
+import { postDeliveryAck } from './deliveryAck';
+import { markSpoken as markSpokenInDb } from './inboxRepository';
 import {
   clampSpeechVolume,
   compareNotificationPriority,
@@ -109,6 +111,12 @@ export async function speakNotification(note: HermesNotification): Promise<void>
     }
 
     markSpoken(note.notification_id);
+    try {
+      await markSpokenInDb(note.notification_id);
+      void postDeliveryAck(note.notification_id, 'spoken');
+    } catch {
+      // Inbox DB optional for speech path.
+    }
     const text = `${note.title}. ${note.message}`;
     const volume = clampSpeechVolume(settings.notifications.speechVolume);
     await resolved.provider.synthesize(

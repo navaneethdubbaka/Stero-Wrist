@@ -135,6 +135,15 @@ export function NotificationSettingsScreen() {
         hint="POST endpoint that associates this device with your Hermes profile"
       />
 
+      <FormField
+        label="Delivery ack URL (optional)"
+        value={notifications.ackUrl}
+        onChangeText={(ackUrl) => setNotifications({ ackUrl })}
+        placeholder="https://hermes.example/v1/notification-acks"
+        keyboardType="url"
+        hint="Fire-and-forget received/displayed/spoken/acked/dismissed events"
+      />
+
       <View style={styles.statusBox}>
         <Text style={styles.section}>Connection</Text>
         <Text style={styles.statusTitle}>{label.title}</Text>
