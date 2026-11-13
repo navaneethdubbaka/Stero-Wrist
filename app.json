@@ -18,7 +18,14 @@
     },
     "android": {
       "package": "com.sterowrist.app",
-      "permissions": ["RECORD_AUDIO"],
+      "permissions": [
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS",
+        "BLUETOOTH_CONNECT",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_MICROPHONE",
+        "POST_NOTIFICATIONS"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#0B1215",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -40,7 +47,8 @@
           "speechRecognitionPermission": "Allow Stero Wrist to turn speech into text for Hermes.",
           "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
         }
-      ]
+      ],
+      "./plugins/withSteroAssistant.js"
     ]
   }
 }

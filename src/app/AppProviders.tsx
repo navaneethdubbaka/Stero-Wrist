@@ -3,6 +3,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { RootNavigator } from './navigation';
+import { startAssistantActivationListeners } from '../features/assistant/assistantActivation';
 import { useProfilesStore } from '../features/profiles/profilesStore';
 import { useSettingsStore } from '../features/settings/settingsStore';
 import { hydratePrefs } from '../shared/storage/prefs';
@@ -32,6 +33,11 @@ export function AppProviders() {
       cancelled = true;
     };
   }, [hydrateProfiles, hydrateSettings]);
+
+  useEffect(() => {
+    if (!booted || !profilesReady || !settingsReady) return;
+    return startAssistantActivationListeners();
+  }, [booted, profilesReady, settingsReady]);
 
   const ready = booted && profilesReady && settingsReady;
 

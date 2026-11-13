@@ -8,11 +8,18 @@ import {
   type VoiceState,
 } from './voiceStateMachine';
 
+type MicRouteUi = {
+  label: string | null;
+  banner: string | null;
+};
+
 type VoiceSessionState = {
   snapshot: VoiceMachineSnapshot;
   partialTranscript: string;
+  micRoute: MicRouteUi;
   dispatch: (event: VoiceEvent) => void;
   setPartial: (text: string) => void;
+  setMicRoute: (route: MicRouteUi) => void;
   reset: () => void;
   state: () => VoiceState;
   label: () => string;
@@ -21,6 +28,7 @@ type VoiceSessionState = {
 export const useVoiceSessionStore = create<VoiceSessionState>((set, get) => ({
   snapshot: createInitialSnapshot(),
   partialTranscript: '',
+  micRoute: { label: null, banner: null },
 
   dispatch: (event) => {
     const next = reduceVoice(get().snapshot, event);
@@ -43,10 +51,15 @@ export const useVoiceSessionStore = create<VoiceSessionState>((set, get) => ({
     set({ partialTranscript: text });
   },
 
+  setMicRoute: (route) => {
+    set({ micRoute: route });
+  },
+
   reset: () => {
     set({
       snapshot: createInitialSnapshot(),
       partialTranscript: '',
+      micRoute: { label: null, banner: null },
     });
   },
 

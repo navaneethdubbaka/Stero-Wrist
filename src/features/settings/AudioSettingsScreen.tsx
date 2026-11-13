@@ -1,41 +1,95 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../shared/ui/Screen';
-import { FormField } from '../../shared/ui/FormField';
-import { colors, type as typeScale } from '../../shared/theme/tokens';
+import { colors, space, touch, type as typeScale } from '../../shared/theme/tokens';
+import type { AudioInputPreference } from '../../shared/types/settings';
+import { readActiveInputInfo } from '../assistant/audioRoute';
+import { formatMicSourceLabel } from '../assistant/audioRoutePolicy';
 import { useSettingsStore } from './settingsStore';
+
+const INPUT_OPTIONS: { id: AudioInputPreference; label: string; hint: string }[] =
+  [
+    {
+      id: 'auto',
+      label: 'Auto',
+      hint: 'Prefer watch HFP when connected; else phone mic',
+    },
+    {
+      id: 'watch',
+      label: 'Watch / HFP',
+      hint: 'Force Bluetooth HFP when available',
+    },
+    {
+      id: 'phone',
+      label: 'Phone mic',
+      hint: 'Never start SCO; always phone mic',
+    },
+  ];
 
 export function AudioSettingsScreen() {
   const audio = useSettingsStore((s) => s.settings.audio);
   const setAudio = useSettingsStore((s) => s.setAudio);
+  const [probeLabel, setProbeLabel] = useState('Probing…');
+
+  const refreshProbe = useCallback(() => {
+    void readActiveInputInfo().then((info) => {
+      setProbeLabel(formatMicSourceLabel(info));
+    });
+  }, []);
+
+  useEffect(() => {
+    refreshProbe();
+  }, [refreshProbe]);
 
   return (
     <Screen>
       <Text style={styles.title}>Audio</Text>
       <Text style={styles.hint}>
-        Placeholders for Phase 5 / 9 routing. Input and output stay independent.
+        Input and output stay independent. Replies always play on the phone
+        speaker in Phase 5.
       </Text>
 
-      <FormField
-        label="Input device"
-        value={audio.inputDevice}
-        onChangeText={(inputDevice) => setAudio({ inputDevice })}
-        placeholder="default"
-        hint="Watch mic routing arrives with assistant integration"
-      />
-      <FormField
-        label="Output device"
-        value={audio.outputDevice}
-        onChangeText={(outputDevice) => setAudio({ outputDevice })}
-        placeholder="phone_speaker"
-        hint="Default remains phone speaker"
-      />
+      <Text style={styles.section}>Input preference</Text>
+      {INPUT_OPTIONS.map((opt) => {
+        const selected = audio.inputDevice === opt.id;
+        return (
+          <Pressable
+            key={opt.id}
+            style={[styles.option, selected && styles.optionSelected]}
+            onPress={() => setAudio({ inputDevice: opt.id })}
+            accessibilityRole="button"
+            accessibilityState={{ selected }}
+          >
+            <Text style={styles.optionLabel}>{opt.label}</Text>
+            <Text style={styles.optionHint}>{opt.hint}</Text>
+          </Pressable>
+        );
+      })}
 
+      <Text style={styles.section}>Live route probe</Text>
+      <Text style={styles.probe}>{probeLabel}</Text>
+      <Pressable style={styles.refreshBtn} onPress={refreshProbe}>
+        <Text style={styles.refreshText}>Refresh probe</Text>
+      </Pressable>
+
+      <Text style={styles.section}>Output</Text>
       <View style={styles.banner}>
-        <Text style={styles.bannerTitle}>Not wired yet</Text>
+        <Text style={styles.bannerTitle}>Phone speaker</Text>
         <Text style={styles.bannerBody}>
-          These labels persist locally but do not change the OS audio route in Phase 1.
+          Watch / earbud output routing is deferred to Phase 9. SCO is torn down
+          before TTS so replies stay on the phone.
         </Text>
       </View>
+
+      {Platform.OS === 'ios' ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerTitle}>iOS</Text>
+          <Text style={styles.bannerBody}>
+            Watch mic and default-assistant activation are Android-first. Use a
+            Shortcut that opens stero-wrist://activate for phone-mic voice.
+          </Text>
+        </View>
+      ) : null}
     </Screen>
   );
 }
@@ -48,6 +102,48 @@ const styles = StyleSheet.create({
   hint: {
     ...typeScale.caption,
     color: colors.mist,
+  },
+  section: {
+    ...typeScale.label,
+    color: colors.foam,
+    marginTop: space.md,
+  },
+  option: {
+    backgroundColor: colors.surface,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.outline,
+    padding: 14,
+    gap: 4,
+    minHeight: touch.min,
+    justifyContent: 'center',
+  },
+  optionSelected: {
+    borderColor: colors.lanternReady,
+  },
+  optionLabel: {
+    ...typeScale.label,
+    color: colors.foam,
+  },
+  optionHint: {
+    ...typeScale.caption,
+    color: colors.mist,
+  },
+  probe: {
+    ...typeScale.body,
+    color: colors.foam,
+  },
+  refreshBtn: {
+    alignSelf: 'flex-start',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.outline,
+  },
+  refreshText: {
+    ...typeScale.label,
+    color: colors.lanternReady,
   },
   banner: {
     backgroundColor: colors.surface,

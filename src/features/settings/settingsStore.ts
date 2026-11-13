@@ -9,6 +9,7 @@ import {
 } from '../../shared/types/settings';
 import { prefsGetString, prefsSetString } from '../../shared/storage/prefs';
 import { secretDelete, secretSet, ttsApiKeySecretId } from '../../shared/storage/secrets';
+import { normalizeInputPreference } from '../assistant/audioRoutePolicy';
 
 const SETTINGS_KEY = 'stero.settings.v1';
 
@@ -41,8 +42,22 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }
     try {
       const parsed = JSON.parse(raw) as AppSettings;
+      const defaults = createDefaultSettings();
+      const merged: AppSettings = {
+        ...defaults,
+        ...parsed,
+        assistant: { ...defaults.assistant, ...parsed.assistant },
+        tts: { ...defaults.tts, ...parsed.tts },
+        notifications: { ...defaults.notifications, ...parsed.notifications },
+        audio: {
+          ...defaults.audio,
+          ...parsed.audio,
+          inputDevice: normalizeInputPreference(parsed.audio?.inputDevice),
+          outputDevice: 'phone_speaker',
+        },
+      };
       set({
-        settings: { ...createDefaultSettings(), ...parsed },
+        settings: merged,
         hydrated: true,
       });
     } catch {

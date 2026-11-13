@@ -2,7 +2,7 @@
 
 Android / iOS companion app that turns a smartwatch into a voice + notification front-end for Hermes (and other AI backends).
 
-**Phase 0–4 status:** Expo scaffold, Home + settings/profiles, phone-mic STT, Hermes webhook, system TTS on the phone speaker.
+**Phase 0–5 status:** Expo scaffold, Home + settings/profiles, phone-mic STT, Hermes webhook, system TTS, Android default-assistant activation + HFP mic routing.
 
 ## Disk layout (E:)
 
@@ -27,12 +27,13 @@ npx tsc --noEmit
 npm run test:voice
 npm run test:webhook
 npm run test:tts
+npm run test:audio
 npx expo start
 ```
 
-### Phase 2–4 — voice + Hermes + TTS on a real device
+### Phase 2–5 — voice + Hermes + TTS + watch button (dev client)
 
-STT uses **`expo-speech-recognition`**; TTS uses **`expo-speech`** (system voices). Needs a **development client**, not Expo Go.
+STT uses **`expo-speech-recognition`**; TTS uses **`expo-speech`**; watch activation uses local module **`stero-assistant`** (`VoiceInteractionService` + HFP/SCO). Needs a **development client**, not Expo Go.
 
 Configure an active **backend profile** (HTTPS webhook URL + token) before Activate. Production builds reject `http://` URLs; development allows them for local Hermes.
 
@@ -46,37 +47,57 @@ npx expo prebuild --platform android
 npx expo run:android
 ```
 
-3. On the device: set up Hermes → **Activate assistant** → speak → transcript → Hermes reply **spoken** on the phone speaker → Idle. **Cancel** stops listening and TTS. Settings → TTS → **Test voice** previews the current voice/language/speed.
+3. On the device:
+   - Settings → **Default assistant role** → set Stero Wrist as the default digital assistant.
+   - Settings → Audio → input preference (`auto` / `watch` / `phone`).
+   - **Activate assistant** (or press the watch assistant button) → speak → Hermes reply spoken on the **phone speaker**.
+   - **Cancel** stops listening, SCO, and TTS.
 
-Mic input and speaker output are independent; watch/earbud routing is deferred.
+Mic input and speaker output are independent; watch/earbud **output** is deferred to Phase 9.
 
-### Android native build note
+### Android — watch button checklist
 
-Deep New Architecture CMake paths often break on Windows (`ninja: error: mkdir(...): No such file or directory`). Mitigations: long paths + short project path + `newArchEnabled=false` in `gradle.properties` when needed.
+- [ ] Stero Wrist is the system default assistant.
+- [ ] Phone locked / screen off → watch assistant button starts a session.
+- [ ] Home shows mic source (`Mic: Watch HFP` or `Mic: Phone`).
+- [ ] If HFP unavailable, banner **Using phone mic** and session still completes.
+- [ ] Cancel mid-listen returns to Idle (never stuck in LISTENING).
+- [ ] Role not set → soft Home prompt; in-app Activate still works on phone mic.
+
+### iOS — Shortcut activation
+
+iOS has no third-party default-assistant / watch-mic path in this phase.
+
+1. Create a Shortcut: **Open URL** → `stero-wrist://activate`
+2. Optionally bind it to the Action Button / Back Tap.
+3. Opens the app and starts a phone-mic voice session.
 
 ## Features so far
 
 ### Phase 1
 - Home **ChannelStrip** status; soft **Set up Hermes** when no profiles
 - Backend profiles, webhook editor, SecureStore tokens, AsyncStorage prefs
-- Assistant / TTS settings; notification + audio stubs
+- Assistant / TTS settings; notification stubs
 
 ### Phase 2
 - Pure voice state machine (`IDLE → … → SPEAKING → IDLE`)
 - Phone-mic STT via `expo-speech-recognition`
 - Home **Activate assistant** / Cancel / transcript
-- Silence threshold from Assistant settings (Android RecognizerIntent)
 
 ### Phase 3
 - Hermes webhook client (template, auth, timeout, retry, response mapping)
 - Session IDs; HTTPS enforced outside `__DEV__`
-- Home shows real **Last reply**; **Retry last request** on send failures
 
 ### Phase 4
-- `TtsProvider` + **System TTS** (`expo-speech`) on phone speaker
-- Speaks Hermes replies; stop on cancel / re-activate
-- TTS settings **Test voice**; cloud providers fall back to system until Phase 9
-- Per-event TTS policy stubs (notifications unused until Phase 7)
+- System TTS (`expo-speech`) on phone speaker; stop on cancel / re-activate
+- TTS **Test voice**; cloud providers fall back to system until Phase 9
+
+### Phase 5
+- Local Expo module `stero-assistant`: `VoiceInteractionService`, mic FGS, HFP/SCO routing
+- Config plugin `plugins/withSteroAssistant.js` (manifest services + permissions)
+- Settings → Default assistant role + Audio input enums + live route probe
+- Home mic-source line + phone-mic fallback banner
+- iOS: `stero-wrist://activate` deep link / Shortcut (phone mic only)
 
 ## Docs
 
