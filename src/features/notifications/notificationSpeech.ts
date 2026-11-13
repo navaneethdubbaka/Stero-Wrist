@@ -103,8 +103,11 @@ export async function speakNotification(note: HermesNotification): Promise<void>
   speaking = true;
 
   try {
-    await stopScoAndMicService();
-    await applyAudioOutput(settings.audio.outputDevice);
+    const output = settings.audio.outputDevice;
+    if (output !== 'watch_speaker') {
+      await stopScoAndMicService();
+    }
+    await applyAudioOutput(output);
     const event = ttsEventForPriority(note.priority);
     const text = settings.notifications.storeFullNotificationBody
       ? `${note.title}. ${note.message}`
@@ -122,6 +125,9 @@ export async function speakNotification(note: HermesNotification): Promise<void>
 
     const result = await synthesizeAndPlay(text, event, volume);
     void result;
+    if (output === 'watch_speaker') {
+      await stopScoAndMicService();
+    }
   } catch {
     // Non-blocking — notification display already happened.
   } finally {

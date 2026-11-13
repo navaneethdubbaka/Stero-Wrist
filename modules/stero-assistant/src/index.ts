@@ -21,8 +21,19 @@ export type OutputRouteResult = {
   applied: boolean;
 };
 
+export type AssistantStatus = {
+  roleHeld: boolean;
+  voiceInteractionService: string;
+  assistComponent: string;
+  ourComponent: string;
+  isSelected: boolean;
+  voiceSelected: boolean;
+  assistSelected: boolean;
+};
+
 type NativeSteroAssistant = {
   isDefaultAssistant(): Promise<boolean>;
+  getAssistantStatus(): Promise<AssistantStatus>;
   openAssistantSettings(): Promise<void>;
   startInputRoute(preferWatch: boolean): Promise<ActiveInputInfo>;
   stopInputRoute(): Promise<void>;
@@ -54,6 +65,21 @@ export function isSteroAssistantAvailable(): boolean {
 export async function isDefaultAssistant(): Promise<boolean> {
   if (!Native) return false;
   return Native.isDefaultAssistant();
+}
+
+export async function getAssistantStatus(): Promise<AssistantStatus> {
+  if (!Native) {
+    return {
+      roleHeld: false,
+      voiceInteractionService: '',
+      assistComponent: '',
+      ourComponent: '',
+      isSelected: false,
+      voiceSelected: false,
+      assistSelected: false,
+    };
+  }
+  return Native.getAssistantStatus();
 }
 
 export async function openAssistantSettings(): Promise<void> {

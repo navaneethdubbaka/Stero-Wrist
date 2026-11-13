@@ -18,6 +18,7 @@ const PERMISSIONS = [
 const VIS = 'expo.modules.steroassistant.SteroVoiceInteractionService';
 const VISS = 'expo.modules.steroassistant.SteroVoiceInteractionSessionService';
 const FGS = 'expo.modules.steroassistant.SteroMicForegroundService';
+const ASSIST = 'expo.modules.steroassistant.SteroAssistActivity';
 
 function ensurePermission(manifest, name) {
   if (!Array.isArray(manifest['uses-permission'])) {
@@ -44,8 +45,21 @@ function ensureService(application, service) {
   }
 }
 
+function ensureActivity(application, activity) {
+  if (!Array.isArray(application.activity)) {
+    application.activity = [];
+  }
+  const name = activity.$['android:name'];
+  const idx = application.activity.findIndex((a) => a.$?.['android:name'] === name);
+  if (idx >= 0) {
+    application.activity[idx] = activity;
+  } else {
+    application.activity.push(activity);
+  }
+}
+
 /**
- * Registers VoiceInteraction services, FGS, and mic/BT permissions for Phase 5.
+ * Registers VoiceInteraction + Assist activity, FGS, and mic/BT permissions.
  */
 const withSteroAssistant = (config) => {
   config = AndroidConfig.Permissions.withPermissions(config, PERMISSIONS);
@@ -65,6 +79,7 @@ const withSteroAssistant = (config) => {
         'android:name': VIS,
         'android:permission': 'android.permission.BIND_VOICE_INTERACTION',
         'android:exported': 'true',
+        'android:label': 'Stero Wrist',
       },
       'intent-filter': [
         {
@@ -103,6 +118,35 @@ const withSteroAssistant = (config) => {
       },
     });
 
+    // Assist / voice-command activity — shows in Assist app pickers on many OEMs.
+    ensureActivity(application, {
+      $: {
+        'android:name': ASSIST,
+        'android:exported': 'true',
+        'android:theme': '@android:style/Theme.Translucent.NoTitleBar',
+        'android:excludeFromRecents': 'true',
+        'android:label': 'Stero Wrist',
+      },
+      'intent-filter': [
+        {
+          action: [
+            { $: { 'android:name': 'android.intent.action.ASSIST' } },
+          ],
+          category: [
+            { $: { 'android:name': 'android.intent.category.DEFAULT' } },
+          ],
+        },
+        {
+          action: [
+            { $: { 'android:name': 'android.intent.action.VOICE_COMMAND' } },
+          ],
+          category: [
+            { $: { 'android:name': 'android.intent.category.DEFAULT' } },
+          ],
+        },
+      ],
+    });
+
     return config;
   });
 
@@ -124,6 +168,7 @@ const withSteroAssistant = (config) => {
       const xml = `<?xml version="1.0" encoding="utf-8"?>
 <voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:sessionService="${VISS}"
+    android:settingsActivity="com.sterowrist.app.MainActivity"
     android:supportsAssist="true"
     android:supportsLaunchVoiceAssistFromKeyguard="true"
     android:supportsLocalInteraction="true" />

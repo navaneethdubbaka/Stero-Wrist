@@ -38,33 +38,7 @@ object AudioRouteHelper {
       stopInputRoute(context)
       return getActiveInputInfo(context)
     }
-
-    val hfp = findHfpDevice(am)
-    if (hfp == null) {
-      stopInputRoute(context)
-      return getActiveInputInfo(context)
-    }
-
-    try {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        am.setCommunicationDevice(hfp)
-      }
-      am.mode = AudioManager.MODE_IN_COMMUNICATION
-      am.startBluetoothSco()
-      am.isBluetoothScoOn = true
-    } catch (_: Exception) {
-      stopInputRoute(context)
-      return getActiveInputInfo(context)
-    }
-
-    // Brief settle so SCO can connect before SpeechRecognizer starts.
-    try {
-      Thread.sleep(350)
-    } catch (_: InterruptedException) {
-      // ignore
-    }
-
-    return getActiveInputInfo(context)
+    return startScoRoute(am) ?: getActiveInputInfo(context)
   }
 
   fun stopInputRoute(context: Context) {
@@ -84,19 +58,39 @@ object AudioRouteHelper {
   }
 
   /**
-   * Prefer playback output after SCO teardown. Best-effort; no OEM watch-speaker hacks.
-   * preference: phone_speaker | earbuds | bluetooth
+   * Prefer playback output.
+   * - phone_speaker / earbuds / bluetooth (A2DP): SCO down, then route
+   * - watch_speaker: keep/start HFP SCO so watch earpiece/speaker gets call-path audio
    */
   fun preferOutputRoute(context: Context, preference: String): Map<String, Any> {
     val am = audioManager(context)
-    // Ensure SCO is down so A2DP / speaker can take over for media playback.
+
+    if (preference == "watch_speaker") {
+      val started = startScoRoute(am)
+      if (started != null) {
+        return mapOf(
+          "label" to (started["label"] ?: "Watch speaker (HFP)"),
+          "kind" to "watch_speaker",
+          "applied" to true,
+          "scoOn" to true,
+        )
+      }
+      return mapOf(
+        "label" to "Watch speaker unavailable — phone",
+        "kind" to "phone_speaker",
+        "applied" to false,
+        "scoOn" to false,
+      )
+    }
+
+    // Non-watch: tear down SCO so A2DP / speaker can take over.
     stopInputRoute(context)
 
     try {
       am.mode = AudioManager.MODE_NORMAL
       when (preference) {
         "bluetooth" -> {
-          val bt = findBluetoothOutput(am)
+          val bt = findBluetoothA2dpOutput(am) ?: findBluetoothOutput(am)
           if (bt != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             am.setCommunicationDevice(bt)
             return mapOf(
@@ -105,7 +99,6 @@ object AudioRouteHelper {
               "applied" to true,
             )
           }
-          // Pre-S: speakerphone off lets BT A2DP reclaim media when available.
           am.isSpeakerphoneOn = false
           return mapOf(
             "label" to "Bluetooth (best-effort)",
@@ -151,6 +144,32 @@ object AudioRouteHelper {
     }
   }
 
+  private fun startScoRoute(am: AudioManager): Map<String, Any>? {
+    val hfp = findHfpDevice(am) ?: findBluetoothScoOutput(am) ?: return null
+    try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        am.setCommunicationDevice(hfp)
+      }
+      am.mode = AudioManager.MODE_IN_COMMUNICATION
+      am.isSpeakerphoneOn = false
+      am.startBluetoothSco()
+      am.isBluetoothScoOn = true
+      try {
+        Thread.sleep(350)
+      } catch (_: InterruptedException) {
+        // ignore
+      }
+      return mapOf(
+        "label" to deviceLabel(hfp, "Watch HFP"),
+        "kind" to "watch_hfp",
+        "scoOn" to am.isBluetoothScoOn,
+        "hfpAvailable" to true,
+      )
+    } catch (_: Exception) {
+      return null
+    }
+  }
+
   private fun audioManager(context: Context): AudioManager {
     return context.applicationContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
   }
@@ -162,12 +181,22 @@ object AudioRouteHelper {
     }
   }
 
-  private fun findBluetoothOutput(am: AudioManager): AudioDeviceInfo? {
+  private fun findBluetoothScoOutput(am: AudioManager): AudioDeviceInfo? {
     val devices = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
     return devices.firstOrNull {
-      it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
-        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+      it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
     }
+  }
+
+  private fun findBluetoothA2dpOutput(am: AudioManager): AudioDeviceInfo? {
+    val devices = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+    return devices.firstOrNull {
+      it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+    }
+  }
+
+  private fun findBluetoothOutput(am: AudioManager): AudioDeviceInfo? {
+    return findBluetoothA2dpOutput(am) ?: findBluetoothScoOutput(am)
   }
 
   private fun findWiredOutput(am: AudioManager): AudioDeviceInfo? {

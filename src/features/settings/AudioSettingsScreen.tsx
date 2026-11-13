@@ -37,7 +37,12 @@ const OUTPUT_OPTIONS: {
   {
     id: 'phone_speaker',
     label: 'Phone speaker',
-    hint: 'Default — after SCO teardown, speak on the handset',
+    hint: 'Default — speak on the handset',
+  },
+  {
+    id: 'watch_speaker',
+    label: 'Watch speaker',
+    hint: 'Keep HFP SCO up so replies play on the watch (if it supports HFP audio)',
   },
   {
     id: 'earbuds',
@@ -46,8 +51,8 @@ const OUTPUT_OPTIONS: {
   },
   {
     id: 'bluetooth',
-    label: 'Bluetooth',
-    hint: 'Prefer A2DP/BT output when available (best-effort)',
+    label: 'Bluetooth (A2DP)',
+    hint: 'Media Bluetooth — SCO is torn down first',
   },
 ];
 
@@ -70,9 +75,10 @@ export function AudioSettingsScreen() {
     <Screen>
       <Text style={styles.title}>Audio</Text>
       <Text style={styles.hint}>
-        Input and output are independent. SCO is torn down before TTS, then the
-        output preference is applied. Watch speaker is best-effort only when the
-        OS exposes it — no OEM routing hacks.
+        For a watch with mic + speaker, use Input: Auto or Watch/HFP, and Output:
+        Watch speaker. That keeps the Bluetooth call link (HFP) up so you talk
+        and hear through the watch. Pair the watch in the phone Bluetooth
+        settings first.
       </Text>
 
       <Text style={styles.section}>Input preference</Text>

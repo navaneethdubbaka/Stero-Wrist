@@ -44,14 +44,21 @@ async function speakReply(
   const dispatch = getDispatch();
   const settings = useSettingsStore.getState().settings;
 
-  // Tear down SCO, then apply preferred output before TTS.
-  await stopScoAndMicService();
-  await applyAudioOutput(settings.audio.outputDevice);
+  const output = settings.audio.outputDevice;
+  // Watch speaker needs HFP SCO kept up; other outputs tear SCO down first.
+  if (output !== 'watch_speaker') {
+    await stopScoAndMicService();
+  }
+  await applyAudioOutput(output);
 
   try {
     await synthesizeAndPlay(text, 'assistant_response');
   } catch {
     // Keep webhook success visible; finish speaking state without FAIL.
+  }
+
+  if (output === 'watch_speaker' && !opts.restoreContinuousMic) {
+    await stopScoAndMicService();
   }
 
   if (opts.restoreContinuousMic) {

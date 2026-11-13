@@ -118,11 +118,15 @@ export function createDefaultPriorityRules(): Record<
 /** Mic preference — actual route is probed at listen time. */
 export type AudioInputPreference = 'auto' | 'watch' | 'phone';
 
-/** Playback preference applied after SCO teardown, before TTS. */
+/**
+ * Playback preference before TTS.
+ * watch_speaker keeps HFP SCO up so the watch earpiece/speaker can play.
+ */
 export type AudioOutputPreference =
   | 'phone_speaker'
   | 'earbuds'
-  | 'bluetooth';
+  | 'bluetooth'
+  | 'watch_speaker';
 
 export type AudioSettings = {
   inputDevice: AudioInputPreference;
@@ -194,8 +198,10 @@ export function createDefaultSettings(): AppSettings {
       storeFullNotificationBody: true,
     },
     audio: {
+      /** Prefer watch HFP mic when connected. */
       inputDevice: 'auto',
-      outputDevice: 'phone_speaker',
+      /** Prefer watch speaker over HFP SCO when available. */
+      outputDevice: 'watch_speaker',
     },
   };
 }
@@ -203,7 +209,12 @@ export function createDefaultSettings(): AppSettings {
 export function normalizeOutputPreference(
   value: unknown,
 ): AudioOutputPreference {
-  if (value === 'earbuds' || value === 'bluetooth' || value === 'phone_speaker') {
+  if (
+    value === 'earbuds' ||
+    value === 'bluetooth' ||
+    value === 'phone_speaker' ||
+    value === 'watch_speaker'
+  ) {
     return value;
   }
   return 'phone_speaker';
