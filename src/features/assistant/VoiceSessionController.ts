@@ -1,6 +1,11 @@
 import { useProfilesStore } from '../profiles/profilesStore';
 import { useSettingsStore } from '../settings/settingsStore';
 import {
+  resolveTtsProvider,
+  stopActiveTts,
+} from '../tts/resolveTtsProvider';
+import { ttsOptionsFromSettings } from '../tts/TtsProvider';
+import {
   WebhookError,
   userMessageForWebhookError,
 } from '../webhook/errors';
@@ -9,8 +14,6 @@ import { createSessionId } from '../webhook/sessionId';
 import type { SttProvider } from './stt/SttProvider';
 import { defaultSttProvider } from './stt/ExpoSpeechSttProvider';
 import { useVoiceSessionStore } from './voiceSessionStore';
-
-const SPEAK_STUB_MS = 900;
 
 let timers: ReturnType<typeof setTimeout>[] = [];
 let listening = false;
@@ -29,10 +32,40 @@ function getSetPartial() {
   return useVoiceSessionStore.getState().setPartial;
 }
 
+async function speakReply(
+  text: string,
+  generation: number,
+): Promise<void> {
+  const dispatch = getDispatch();
+  const settings = useSettingsStore.getState().settings;
+  const resolved = resolveTtsProvider(settings.tts.provider, 'assistant_response');
+
+  if (resolved.silent || !resolved.provider) {
+    if (generation === pipelineGeneration) {
+      dispatch({ type: 'SPEAK_DONE' });
+    }
+    return;
+  }
+
+  try {
+    await resolved.provider.synthesize(
+      text,
+      ttsOptionsFromSettings(settings.tts),
+    );
+  } catch {
+    // Keep webhook success visible; finish speaking state without FAIL.
+  }
+
+  if (generation === pipelineGeneration) {
+    dispatch({ type: 'SPEAK_DONE' });
+  }
+}
+
 async function runWebhookPipeline(transcript: string): Promise<void> {
   const dispatch = getDispatch();
   const generation = ++pipelineGeneration;
   clearTimers();
+  await stopActiveTts();
 
   const profile = useProfilesStore.getState().getActiveProfile();
   const settings = useSettingsStore.getState().settings;
@@ -60,12 +93,7 @@ async function runWebhookPipeline(transcript: string): Promise<void> {
       sessionId: result.sessionId ?? sessionId,
     });
 
-    timers.push(
-      setTimeout(() => {
-        if (generation !== pipelineGeneration) return;
-        dispatch({ type: 'SPEAK_DONE' });
-      }, SPEAK_STUB_MS),
-    );
+    await speakReply(result.responseText, generation);
   } catch (error) {
     if (generation !== pipelineGeneration) {
       return;
@@ -139,6 +167,7 @@ export async function activateVoiceSession(
 
   clearTimers();
   pipelineGeneration += 1;
+  await stopActiveTts();
   const sessionId = createSessionId();
   dispatch({ type: 'ACTIVATE', sessionId });
 
@@ -248,6 +277,7 @@ export async function retryLastTranscript(): Promise<void> {
   }
 
   clearTimers();
+  await stopActiveTts();
   getDispatch()({ type: 'RETRY_SEND' });
   if (useVoiceSessionStore.getState().snapshot.state === 'SENDING') {
     await runWebhookPipeline(transcript);
@@ -261,6 +291,7 @@ export async function cancelVoiceSession(
   clearTimers();
   pipelineGeneration += 1;
   listening = false;
+  await stopActiveTts();
   await stt.abort();
   getDispatch()({ type: 'CANCEL' });
 }

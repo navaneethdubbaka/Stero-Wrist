@@ -2,7 +2,7 @@
 
 Android / iOS companion app that turns a smartwatch into a voice + notification front-end for Hermes (and other AI backends).
 
-**Phase 0–3 status:** Expo scaffold, Home + settings/profiles, phone-mic STT, live Hermes webhook (TTS still stubbed until Phase 4).
+**Phase 0–4 status:** Expo scaffold, Home + settings/profiles, phone-mic STT, Hermes webhook, system TTS on the phone speaker.
 
 ## Disk layout (E:)
 
@@ -26,30 +26,29 @@ npm install
 npx tsc --noEmit
 npm run test:voice
 npm run test:webhook
+npm run test:tts
 npx expo start
 ```
 
-### Phase 2–3 — voice + Hermes on a real device
+### Phase 2–4 — voice + Hermes + TTS on a real device
 
-STT uses **`expo-speech-recognition`** (platform SpeechRecognizer / SFSpeechRecognizer). It needs a **development client**, not Expo Go.
+STT uses **`expo-speech-recognition`**; TTS uses **`expo-speech`** (system voices). Needs a **development client**, not Expo Go.
 
-Configure an active **backend profile** (HTTPS webhook URL + token) before Activate. Phase 3 sends the transcript via HTTP and shows the mapped response. Production builds reject `http://` URLs; development allows them for local Hermes.
+Configure an active **backend profile** (HTTPS webhook URL + token) before Activate. Production builds reject `http://` URLs; development allows them for local Hermes.
 
 1. Enable Windows **LongPathsEnabled** if CMake `ninja mkdir` fails.
 2. Prefer a **short path without spaces** for native builds:
 
 ```powershell
-# Sync source to E:\sw then build/run from there
 robocopy "E:\Stero Wrist" E:\sw /MIR /XD .git .expo android\app\.cxx android\app\build android\build
 cd E:\sw
 npx expo prebuild --platform android
-# Ensure android/gradle.properties has newArchEnabled=false if CMake path length fails
 npx expo run:android
 ```
 
-3. On the device: open Stero Wrist → set up Hermes profile → **Activate assistant** → allow mic → speak → see transcript → Hermes reply → Idle. Failed sends offer **Retry last request**. **Cancel** returns to Idle.
+3. On the device: set up Hermes → **Activate assistant** → speak → transcript → Hermes reply **spoken** on the phone speaker → Idle. **Cancel** stops listening and TTS. Settings → TTS → **Test voice** previews the current voice/language/speed.
 
-Real TTS playback arrives in Phase 4.
+Mic input and speaker output are independent; watch/earbud routing is deferred.
 
 ### Android native build note
 
@@ -72,6 +71,12 @@ Deep New Architecture CMake paths often break on Windows (`ninja: error: mkdir(.
 - Hermes webhook client (template, auth, timeout, retry, response mapping)
 - Session IDs; HTTPS enforced outside `__DEV__`
 - Home shows real **Last reply**; **Retry last request** on send failures
+
+### Phase 4
+- `TtsProvider` + **System TTS** (`expo-speech`) on phone speaker
+- Speaks Hermes replies; stop on cancel / re-activate
+- TTS settings **Test voice**; cloud providers fall back to system until Phase 9
+- Per-event TTS policy stubs (notifications unused until Phase 7)
 
 ## Docs
 

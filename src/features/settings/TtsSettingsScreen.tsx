@@ -5,13 +5,30 @@ import { FormField } from '../../shared/ui/FormField';
 import { colors, space, touch, type as typeScale } from '../../shared/theme/tokens';
 import { useSettingsStore } from './settingsStore';
 import type { TtsProviderId } from '../../shared/types/settings';
+import { resolveTtsProvider } from '../tts/resolveTtsProvider';
+import { ttsOptionsFromSettings } from '../tts/TtsProvider';
 
 const PROVIDERS: { id: TtsProviderId; label: string; hint: string }[] = [
-  { id: 'system', label: 'System TTS', hint: 'Built-in — Phase 4 playback' },
-  { id: 'openai', label: 'OpenAI', hint: 'Cloud — Phase 9' },
-  { id: 'fish_audio', label: 'Fish Audio', hint: 'Cloud — Phase 9' },
-  { id: 'custom_http', label: 'Custom HTTP', hint: 'Phase 9' },
+  { id: 'system', label: 'System TTS', hint: 'Built-in — live on device' },
+  {
+    id: 'openai',
+    label: 'OpenAI',
+    hint: 'Cloud — Phase 9 (falls back to system now)',
+  },
+  {
+    id: 'fish_audio',
+    label: 'Fish Audio',
+    hint: 'Cloud — Phase 9 (falls back to system now)',
+  },
+  {
+    id: 'custom_http',
+    label: 'Custom HTTP',
+    hint: 'Phase 9 (falls back to system now)',
+  },
 ];
+
+const TEST_SAMPLE =
+  'Stero Wrist is ready. Hermes replies will be spoken through the phone speaker.';
 
 export function TtsSettingsScreen() {
   const tts = useSettingsStore((s) => s.settings.tts);
@@ -19,6 +36,7 @@ export function TtsSettingsScreen() {
   const saveTtsApiKey = useSettingsStore((s) => s.saveTtsApiKey);
   const [apiKeyDraft, setApiKeyDraft] = useState('');
   const [message, setMessage] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
 
   const cloud = tts.provider !== 'system';
 
@@ -32,11 +50,38 @@ export function TtsSettingsScreen() {
     }
   };
 
+  const onTestVoice = async () => {
+    setTesting(true);
+    setMessage(null);
+    try {
+      const resolved = resolveTtsProvider(tts.provider, 'assistant_response');
+      if (!resolved.provider) {
+        setMessage('TTS is silent for this policy.');
+        return;
+      }
+      await resolved.provider.synthesize(
+        TEST_SAMPLE,
+        ttsOptionsFromSettings(tts),
+      );
+      setMessage(
+        resolved.usedSystemFallback
+          ? 'Played via system TTS (cloud providers arrive in Phase 9).'
+          : 'Test voice finished.',
+      );
+    } catch {
+      Alert.alert('TTS error', 'Could not play the test voice on this device.');
+    } finally {
+      setTesting(false);
+    }
+  };
+
   return (
     <Screen>
       <Text style={styles.title}>Text to speech</Text>
       <Text style={styles.hint}>
-        Provider selection is stored now. Speech playback arrives in Phase 4 / 9.
+        System TTS speaks Hermes replies on the phone speaker. Mic input and
+        speaker output are independent. Cloud providers fall back to system until
+        Phase 9.
       </Text>
 
       <View style={styles.modes}>
@@ -52,11 +97,18 @@ export function TtsSettingsScreen() {
         ))}
       </View>
 
+      {cloud ? (
+        <Text style={styles.fallbackNote}>
+          Selected cloud provider will use system TTS until Phase 9.
+        </Text>
+      ) : null}
+
       <FormField
         label="Voice"
         value={tts.voice}
         onChangeText={(voice) => setTts({ voice })}
         placeholder="default"
+        hint="Use default, or a system voice identifier when known"
       />
       <FormField
         label="Language"
@@ -72,6 +124,18 @@ export function TtsSettingsScreen() {
         }}
         keyboardType="numeric"
       />
+
+      <Pressable
+        style={[styles.button, testing && styles.buttonDisabled]}
+        onPress={() => void onTestVoice()}
+        disabled={testing}
+        accessibilityRole="button"
+        accessibilityLabel="Test voice"
+      >
+        <Text style={styles.buttonText}>
+          {testing ? 'Speaking…' : 'Test voice'}
+        </Text>
+      </Pressable>
 
       {cloud ? (
         <>
@@ -101,9 +165,10 @@ export function TtsSettingsScreen() {
               {apiKeyDraft.trim() ? 'Save API key' : 'Clear API key'}
             </Text>
           </Pressable>
-          {message ? <Text style={styles.message}>{message}</Text> : null}
         </>
       ) : null}
+
+      {message ? <Text style={styles.message}>{message}</Text> : null}
     </Screen>
   );
 }
@@ -116,6 +181,10 @@ const styles = StyleSheet.create({
   hint: {
     ...typeScale.caption,
     color: colors.mist,
+  },
+  fallbackNote: {
+    ...typeScale.caption,
+    color: colors.lanternPending,
   },
   modes: {
     gap: space.sm,
@@ -149,6 +218,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brandBand,
     borderWidth: 1,
     borderColor: colors.lanternReady,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
   buttonText: {
     ...typeScale.label,
