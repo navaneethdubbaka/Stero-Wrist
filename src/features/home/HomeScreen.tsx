@@ -1,6 +1,10 @@
-import { useMemo } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import {
+  isDefaultAssistant,
+  isSteroAssistantAvailable,
+} from '../../../modules/stero-assistant/src';
 import { Screen } from '../../shared/ui/Screen';
 import { ChannelStrip, type ChannelSegment } from '../../shared/ui/ChannelStrip';
 import { colors, space, touch, type as typeScale } from '../../shared/theme/tokens';
@@ -43,7 +47,17 @@ export function HomeScreen({ navigation }: Props) {
 
   const snapshot = useVoiceSessionStore((s) => s.snapshot);
   const partialTranscript = useVoiceSessionStore((s) => s.partialTranscript);
+  const micRoute = useVoiceSessionStore((s) => s.micRoute);
   const voiceState = snapshot.state;
+  const [assistantRoleOk, setAssistantRoleOk] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !isSteroAssistantAvailable()) {
+      setAssistantRoleOk(null);
+      return;
+    }
+    void isDefaultAssistant().then(setAssistantRoleOk);
+  }, []);
 
   const channel = useMemo(
     () => buildChannelStates(activeProfile, settings, voiceState),
@@ -98,12 +112,19 @@ export function HomeScreen({ navigation }: Props) {
         <Text style={styles.sectionLabel}>Voice session</Text>
         <Text style={styles.voiceState}>{voiceStateLabel(voiceState)}</Text>
 
+        {micRoute.label ? (
+          <Text style={styles.meta}>{micRoute.label}</Text>
+        ) : null}
+        {micRoute.banner ? (
+          <Text style={styles.micBanner}>{micRoute.banner}</Text>
+        ) : null}
+
         <View style={styles.voiceActions}>
           <Pressable
             style={[styles.activateBtn, !canActivate && styles.btnDisabled]}
             disabled={!canActivate}
             onPress={() => {
-              void activateVoiceSession();
+              void activateVoiceSession({ trigger: 'home' });
             }}
             accessibilityRole="button"
             accessibilityLabel="Activate assistant"
@@ -237,6 +258,21 @@ export function HomeScreen({ navigation }: Props) {
           <Text style={styles.ctaHint}>Create a backend profile when you are ready</Text>
         </Pressable>
       ) : null}
+
+      {Platform.OS === 'android' && assistantRoleOk === false ? (
+        <Pressable
+          style={styles.ctaSecondary}
+          onPress={() => navigation.navigate('AssistantRole')}
+          accessibilityRole="button"
+        >
+          <Text style={styles.ctaTextSecondary}>
+            Set Stero Wrist as default assistant
+          </Text>
+          <Text style={styles.ctaHint}>
+            Required for the watch assistant button
+          </Text>
+        </Pressable>
+      ) : null}
     </Screen>
   );
 }
@@ -350,6 +386,10 @@ const styles = StyleSheet.create({
     ...typeScale.caption,
     color: colors.danger,
   },
+  micBanner: {
+    ...typeScale.caption,
+    color: colors.lanternPending,
+  },
   cta: {
     backgroundColor: colors.brandBand,
     borderRadius: 12,
@@ -359,8 +399,21 @@ const styles = StyleSheet.create({
     gap: space.xs,
     minHeight: touch.min,
   },
+  ctaSecondary: {
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: space.md,
+    borderWidth: 1,
+    borderColor: colors.outline,
+    gap: space.xs,
+    minHeight: touch.min,
+  },
   ctaText: {
     ...typeScale.title,
+    color: colors.foam,
+  },
+  ctaTextSecondary: {
+    ...typeScale.label,
     color: colors.foam,
   },
   ctaHint: {

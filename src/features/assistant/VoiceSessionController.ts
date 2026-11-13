@@ -11,6 +11,7 @@ import {
 } from '../webhook/errors';
 import { sendTranscript } from '../webhook/HermesWebhookClient';
 import { createSessionId } from '../webhook/sessionId';
+import { preferWatchMic, stopScoAndMicService } from './audioRoute';
 import type { SttProvider } from './stt/SttProvider';
 import { defaultSttProvider } from './stt/ExpoSpeechSttProvider';
 import { useVoiceSessionStore } from './voiceSessionStore';
@@ -39,6 +40,9 @@ async function speakReply(
   const dispatch = getDispatch();
   const settings = useSettingsStore.getState().settings;
   const resolved = resolveTtsProvider(settings.tts.provider, 'assistant_response');
+
+  // Tear down SCO so TTS stays on the phone speaker.
+  await stopScoAndMicService();
 
   if (resolved.silent || !resolved.provider) {
     if (generation === pipelineGeneration) {
@@ -124,8 +128,15 @@ function softSttError(message: string): boolean {
   );
 }
 
+export type VoiceActivateTrigger =
+  | 'home'
+  | 'assistant'
+  | 'deeplink'
+  | 'unknown';
+
 export type VoiceControllerDeps = {
   stt?: SttProvider;
+  trigger?: VoiceActivateTrigger;
 };
 
 export async function activateVoiceSession(
@@ -135,6 +146,7 @@ export async function activateVoiceSession(
   const settings = useSettingsStore.getState().settings;
   const dispatch = getDispatch();
   const setPartial = getSetPartial();
+  const setMicRoute = useVoiceSessionStore.getState().setMicRoute;
 
   if (!settings.assistant.enabled) {
     dispatch({
@@ -162,14 +174,21 @@ export async function activateVoiceSession(
 
   const current = useVoiceSessionStore.getState().snapshot.state;
   if (current !== 'IDLE' && current !== 'ERROR') {
-    return;
+    // Re-activate from watch/assistant: cancel then restart.
+    if (deps.trigger === 'assistant' || deps.trigger === 'deeplink') {
+      await cancelVoiceSession(deps);
+    } else {
+      return;
+    }
   }
 
   clearTimers();
   pipelineGeneration += 1;
   await stopActiveTts();
+  await stopScoAndMicService();
   const sessionId = createSessionId();
   dispatch({ type: 'ACTIVATE', sessionId });
+  setMicRoute({ label: null, banner: null });
 
   const perm = await stt.requestPermissions();
   if (!perm.granted) {
@@ -189,6 +208,15 @@ export async function activateVoiceSession(
     return;
   }
 
+  const route = await preferWatchMic(settings.audio.inputDevice);
+  setMicRoute({
+    label:
+      route.info.kind === 'watch_hfp'
+        ? `Mic: ${route.info.label || 'Watch HFP'}`
+        : `Mic: ${route.info.label || 'Phone'}`,
+    banner: route.banner,
+  });
+
   listening = true;
   try {
     await stt.start(
@@ -207,6 +235,7 @@ export async function activateVoiceSession(
           listening = false;
           const trimmed = text.trim();
           if (!trimmed) {
+            void stopScoAndMicService();
             dispatch({ type: 'TRANSCRIPT_EMPTY' });
             return;
           }
@@ -232,6 +261,7 @@ export async function activateVoiceSession(
                 void runWebhookPipeline(text.trim());
               }
             } else {
+              void stopScoAndMicService();
               dispatch({ type: 'TRANSCRIPT_EMPTY' });
             }
           }
@@ -247,15 +277,18 @@ export async function activateVoiceSession(
               }
               return;
             }
+            void stopScoAndMicService();
             dispatch({ type: 'TRANSCRIPT_EMPTY' });
             return;
           }
+          void stopScoAndMicService();
           dispatch({ type: 'FAIL', message });
         },
       },
     );
   } catch (error) {
     listening = false;
+    await stopScoAndMicService();
     dispatch({
       type: 'FAIL',
       message:
@@ -292,7 +325,9 @@ export async function cancelVoiceSession(
   pipelineGeneration += 1;
   listening = false;
   await stopActiveTts();
+  await stopScoAndMicService();
   await stt.abort();
+  useVoiceSessionStore.getState().setMicRoute({ label: null, banner: null });
   getDispatch()({ type: 'CANCEL' });
 }
 

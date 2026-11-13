@@ -8,6 +8,7 @@ import { AssistantSettingsScreen } from '../features/settings/AssistantSettingsS
 import { TtsSettingsScreen } from '../features/settings/TtsSettingsScreen';
 import { NotificationSettingsScreen } from '../features/settings/NotificationSettingsScreen';
 import { AudioSettingsScreen } from '../features/settings/AudioSettingsScreen';
+import { AssistantRoleScreen } from '../features/settings/AssistantRoleScreen';
 import { colors } from '../shared/theme/tokens';
 
 export type RootStackParamList = {
@@ -16,6 +17,7 @@ export type RootStackParamList = {
   Profiles: undefined;
   ProfileEditor: { profileId: string };
   AssistantSettings: undefined;
+  AssistantRole: undefined;
   TtsSettings: undefined;
   NotificationSettings: undefined;
   AudioSettings: undefined;
@@ -67,6 +69,11 @@ export function RootNavigator() {
           name="AssistantSettings"
           component={AssistantSettingsScreen}
           options={{ title: 'Assistant' }}
+        />
+        <Stack.Screen
+          name="AssistantRole"
+          component={AssistantRoleScreen}
+          options={{ title: 'Default assistant' }}
         />
         <Stack.Screen
           name="TtsSettings"

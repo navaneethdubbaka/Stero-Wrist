@@ -44,6 +44,11 @@ export function SettingsHubScreen({ navigation }: Props) {
           onPress={() => navigation.navigate('AssistantSettings')}
         />
         <ListRow
+          title="Default assistant role"
+          subtitle="Watch button → Stero Wrist (Android)"
+          onPress={() => navigation.navigate('AssistantRole')}
+        />
+        <ListRow
           title="Text to speech"
           subtitle={`Provider: ${tts.provider}`}
           onPress={() => navigation.navigate('TtsSettings')}
@@ -55,7 +60,7 @@ export function SettingsHubScreen({ navigation }: Props) {
         />
         <ListRow
           title="Audio"
-          subtitle="Stub — routing later"
+          subtitle="Input route + mic probe"
           onPress={() => navigation.navigate('AudioSettings')}
         />
       </View>

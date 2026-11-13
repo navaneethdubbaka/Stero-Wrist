@@ -60,9 +60,14 @@ export type NotificationSettings = {
   fcmEnabled: boolean;
 };
 
+/** Mic preference — actual route is probed at listen time. */
+export type AudioInputPreference = 'auto' | 'watch' | 'phone';
+
+export type AudioOutputPreference = 'phone_speaker';
+
 export type AudioSettings = {
-  inputDevice: string;
-  outputDevice: string;
+  inputDevice: AudioInputPreference;
+  outputDevice: AudioOutputPreference;
 };
 
 export type AppSettings = {
@@ -119,7 +124,7 @@ export function createDefaultSettings(): AppSettings {
       fcmEnabled: false,
     },
     audio: {
-      inputDevice: 'default',
+      inputDevice: 'auto',
       outputDevice: 'phone_speaker',
     },
   };

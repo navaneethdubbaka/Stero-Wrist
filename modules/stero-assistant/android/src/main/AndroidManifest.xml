@@ -1,0 +1,3 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- Services and permissions are injected by the withSteroAssistant config plugin. -->
+</manifest>
