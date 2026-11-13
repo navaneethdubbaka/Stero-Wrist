@@ -34,8 +34,9 @@ module.exports = ({ config }) => {
           enableRemoteNotifications: true,
         },
       ],
-      'expo-device',
+      // expo-device has no config plugin — listing it breaks prebuild (loads runtime entry).
       'expo-sqlite',
+      'expo-audio',
     ],
   };
 };

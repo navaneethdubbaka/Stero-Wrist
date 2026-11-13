@@ -1,6 +1,6 @@
 package expo.modules.steroassistant
 
-import android.app.RoleManager
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
@@ -69,14 +69,22 @@ class SteroAssistantModule : Module() {
   }
 
   private fun isDefaultAssistantInternal(): Boolean {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-      val rm = context.getSystemService(RoleManager::class.java) ?: return false
-      if (rm.isRoleAvailable(RoleManager.ROLE_ASSISTANT)) {
-        return rm.isRoleHeld(RoleManager.ROLE_ASSISTANT)
-      }
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+      return false
     }
-    // Pre-Q / unavailable role: cannot verify reliably.
-    return false
+    return try {
+      val rm = context.getSystemService(Context.ROLE_SERVICE) ?: return false
+      val roleAssistant = "android.app.role.ASSISTANT"
+      val isAvailable = rm.javaClass
+        .getMethod("isRoleAvailable", String::class.java)
+        .invoke(rm, roleAssistant) as Boolean
+      if (!isAvailable) return false
+      rm.javaClass
+        .getMethod("isRoleHeld", String::class.java)
+        .invoke(rm, roleAssistant) as Boolean
+    } catch (_: Exception) {
+      false
+    }
   }
 
   private fun openAssistantSettingsInternal() {
@@ -84,9 +92,22 @@ class SteroAssistantModule : Module() {
     val intents = mutableListOf<Intent>()
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-      val rm = context.getSystemService(RoleManager::class.java)
-      if (rm != null && rm.isRoleAvailable(RoleManager.ROLE_ASSISTANT)) {
-        intents.add(rm.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT))
+      try {
+        val rm = context.getSystemService(Context.ROLE_SERVICE)
+        if (rm != null) {
+          val roleAssistant = "android.app.role.ASSISTANT"
+          val isAvailable = rm.javaClass
+            .getMethod("isRoleAvailable", String::class.java)
+            .invoke(rm, roleAssistant) as Boolean
+          if (isAvailable) {
+            val intent = rm.javaClass
+              .getMethod("createRequestRoleIntent", String::class.java)
+              .invoke(rm, roleAssistant) as Intent
+            intents.add(intent)
+          }
+        }
+      } catch (_: Exception) {
+        // Fall through to generic settings intents.
       }
     }
 
