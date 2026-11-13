@@ -1,0 +1,46 @@
+{
+  "expo": {
+    "name": "Stero Wrist",
+    "slug": "stero-wrist",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": false,
+    "scheme": "stero-wrist",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.sterowrist.app",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Stero Wrist needs the microphone to capture voice requests for your AI assistant.",
+        "NSSpeechRecognitionUsageDescription": "Stero Wrist converts your speech to text to send to Hermes."
+      }
+    },
+    "android": {
+      "package": "com.sterowrist.app",
+      "permissions": ["RECORD_AUDIO"],
+      "adaptiveIcon": {
+        "backgroundColor": "#0B1215",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": true
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-dev-client",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow Stero Wrist to use the microphone for assistant requests.",
+          "speechRecognitionPermission": "Allow Stero Wrist to turn speech into text for Hermes.",
+          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
+        }
+      ]
+    ]
+  }
+}
