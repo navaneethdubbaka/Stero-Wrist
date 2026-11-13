@@ -8,6 +8,13 @@ import { useProfilesStore } from '../profiles/profilesStore';
 import { useSettingsStore } from '../settings/settingsStore';
 import type { RootStackParamList } from '../../app/navigation';
 import { buildChannelStates } from './channelStatus';
+import { useVoiceSessionStore } from '../assistant/voiceSessionStore';
+import { voiceStateLabel } from '../assistant/voiceStateMachine';
+import {
+  activateVoiceSession,
+  cancelVoiceSession,
+  dismissVoiceError,
+} from '../assistant/VoiceSessionController';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
@@ -33,9 +40,13 @@ export function HomeScreen({ navigation }: Props) {
   const tts = settings.tts;
   const notifications = settings.notifications;
 
+  const snapshot = useVoiceSessionStore((s) => s.snapshot);
+  const partialTranscript = useVoiceSessionStore((s) => s.partialTranscript);
+  const voiceState = snapshot.state;
+
   const channel = useMemo(
-    () => buildChannelStates(activeProfile, settings),
-    [activeProfile, settings],
+    () => buildChannelStates(activeProfile, settings, voiceState),
+    [activeProfile, settings, voiceState],
   );
 
   const segments: ChannelSegment[] = [
@@ -46,6 +57,24 @@ export function HomeScreen({ navigation }: Props) {
   ];
 
   const showSetup = profiles.length === 0;
+  const voiceBusy =
+    voiceState !== 'IDLE' && voiceState !== 'ERROR';
+  const canActivate =
+    settings.assistant.enabled &&
+    settings.assistant.defaultMode === 'single_request' &&
+    (voiceState === 'IDLE' || voiceState === 'ERROR');
+  const canCancel =
+    voiceState === 'ACTIVATED' ||
+    voiceState === 'LISTENING' ||
+    voiceState === 'TRANSCRIBING' ||
+    voiceState === 'SENDING' ||
+    voiceState === 'WAITING_RESPONSE' ||
+    voiceState === 'SPEAKING';
+
+  const displayTranscript =
+    snapshot.context.finalTranscript ||
+    partialTranscript ||
+    '';
 
   return (
     <Screen>
@@ -63,6 +92,71 @@ export function HomeScreen({ navigation }: Props) {
 
       <Text style={styles.kicker}>Channel status</Text>
       <ChannelStrip segments={segments} />
+
+      <View style={styles.voiceBlock}>
+        <Text style={styles.sectionLabel}>Voice session</Text>
+        <Text style={styles.voiceState}>{voiceStateLabel(voiceState)}</Text>
+
+        <View style={styles.voiceActions}>
+          <Pressable
+            style={[styles.activateBtn, !canActivate && styles.btnDisabled]}
+            disabled={!canActivate}
+            onPress={() => {
+              void activateVoiceSession();
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Activate assistant"
+          >
+            <Text style={styles.activateText}>Activate assistant</Text>
+          </Pressable>
+          {canCancel ? (
+            <Pressable
+              style={styles.cancelBtn}
+              onPress={() => {
+                void cancelVoiceSession();
+              }}
+              accessibilityRole="button"
+            >
+              <Text style={styles.cancelText}>Cancel</Text>
+            </Pressable>
+          ) : null}
+          {voiceState === 'ERROR' ? (
+            <Pressable
+              style={styles.cancelBtn}
+              onPress={() => dismissVoiceError()}
+              accessibilityRole="button"
+            >
+              <Text style={styles.cancelText}>Dismiss</Text>
+            </Pressable>
+          ) : null}
+        </View>
+
+        {displayTranscript ? (
+          <View style={styles.transcriptBox}>
+            <Text style={styles.sectionLabel}>
+              {snapshot.context.finalTranscript ? 'Transcript' : 'Hearing…'}
+            </Text>
+            <Text style={styles.body}>{displayTranscript}</Text>
+          </View>
+        ) : (
+          <Text style={styles.placeholder}>
+            {voiceBusy
+              ? 'Listening for speech…'
+              : 'Tap Activate and speak — phone mic (Phase 2)'}
+          </Text>
+        )}
+
+        {snapshot.context.lastReply ? (
+          <View style={styles.transcriptBox}>
+            <Text style={styles.sectionLabel}>Last reply (mock)</Text>
+            <Text style={styles.body}>{snapshot.context.lastReply}</Text>
+          </View>
+        ) : null}
+
+        {snapshot.context.errorMessage ? (
+          <Text style={styles.errorText}>{snapshot.context.errorMessage}</Text>
+        ) : null}
+      </View>
 
       <View style={styles.block}>
         <Text style={styles.sectionLabel}>Active profile</Text>
@@ -92,7 +186,11 @@ export function HomeScreen({ navigation }: Props) {
 
       <View style={styles.block}>
         <Text style={styles.sectionLabel}>Last interaction</Text>
-        <Text style={styles.placeholder}>No interactions yet — voice arrives in Phase 2</Text>
+        <Text style={styles.body}>
+          {snapshot.context.finalTranscript
+            ? snapshot.context.finalTranscript
+            : 'No interactions yet'}
+        </Text>
       </View>
 
       <View style={styles.block}>
@@ -147,6 +245,58 @@ const styles = StyleSheet.create({
     borderColor: colors.outline,
     gap: space.xs,
   },
+  voiceBlock: {
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: space.md,
+    borderWidth: 1,
+    borderColor: colors.lanternReady,
+    gap: space.sm,
+  },
+  voiceState: {
+    ...typeScale.headline,
+    color: colors.foam,
+    fontSize: 24,
+  },
+  voiceActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: space.sm,
+  },
+  activateBtn: {
+    minHeight: touch.min,
+    paddingHorizontal: space.lg,
+    borderRadius: 12,
+    backgroundColor: colors.brandBand,
+    borderWidth: 1,
+    borderColor: colors.lanternReady,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activateText: {
+    ...typeScale.label,
+    color: colors.foam,
+  },
+  cancelBtn: {
+    minHeight: touch.min,
+    paddingHorizontal: space.md,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.outline,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelText: {
+    ...typeScale.label,
+    color: colors.mist,
+  },
+  btnDisabled: {
+    opacity: 0.4,
+  },
+  transcriptBox: {
+    gap: space.xs,
+    paddingTop: space.xs,
+  },
   sectionLabel: {
     ...typeScale.label,
     color: colors.mist,
@@ -166,6 +316,10 @@ const styles = StyleSheet.create({
   placeholder: {
     ...typeScale.body,
     color: colors.lanternOff,
+  },
+  errorText: {
+    ...typeScale.caption,
+    color: colors.danger,
   },
   cta: {
     backgroundColor: colors.brandBand,

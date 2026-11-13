@@ -10,10 +10,15 @@
     "scheme": "stero-wrist",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.sterowrist.app"
+      "bundleIdentifier": "com.sterowrist.app",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Stero Wrist needs the microphone to capture voice requests for your AI assistant.",
+        "NSSpeechRecognitionUsageDescription": "Stero Wrist converts your speech to text to send to Hermes."
+      }
     },
     "android": {
       "package": "com.sterowrist.app",
+      "permissions": ["RECORD_AUDIO"],
       "adaptiveIcon": {
         "backgroundColor": "#0B1215",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -27,7 +32,15 @@
     },
     "plugins": [
       "expo-secure-store",
-      "expo-dev-client"
+      "expo-dev-client",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow Stero Wrist to use the microphone for assistant requests.",
+          "speechRecognitionPermission": "Allow Stero Wrist to turn speech into text for Hermes.",
+          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
+        }
+      ]
     ]
   }
 }
