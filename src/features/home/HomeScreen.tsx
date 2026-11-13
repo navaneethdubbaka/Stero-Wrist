@@ -1,0 +1,187 @@
+import { useMemo } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { Screen } from '../../shared/ui/Screen';
+import { ChannelStrip, type ChannelSegment } from '../../shared/ui/ChannelStrip';
+import { colors, space, touch, type as typeScale } from '../../shared/theme/tokens';
+import { useProfilesStore } from '../profiles/profilesStore';
+import { useSettingsStore } from '../settings/settingsStore';
+import type { RootStackParamList } from '../../app/navigation';
+import { buildChannelStates } from './channelStatus';
+
+type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
+
+function providerLabel(provider: string): string {
+  switch (provider) {
+    case 'system':
+      return 'System TTS';
+    case 'openai':
+      return 'OpenAI TTS';
+    case 'fish_audio':
+      return 'Fish Audio';
+    case 'custom_http':
+      return 'Custom HTTP TTS';
+    default:
+      return provider;
+  }
+}
+
+export function HomeScreen({ navigation }: Props) {
+  const profiles = useProfilesStore((s) => s.profiles);
+  const activeProfile = useProfilesStore((s) => s.getActiveProfile());
+  const settings = useSettingsStore((s) => s.settings);
+  const tts = settings.tts;
+  const notifications = settings.notifications;
+
+  const channel = useMemo(
+    () => buildChannelStates(activeProfile, settings),
+    [activeProfile, settings],
+  );
+
+  const segments: ChannelSegment[] = [
+    { id: 'assistant', label: 'Assistant', state: channel.assistant },
+    { id: 'hermes', label: 'Hermes', state: channel.hermes },
+    { id: 'tts', label: 'TTS', state: channel.tts },
+    { id: 'notify', label: 'Notify', state: channel.notify },
+  ];
+
+  const showSetup = profiles.length === 0;
+
+  return (
+    <Screen>
+      <View style={styles.header}>
+        <Text style={styles.brand}>Stero Wrist</Text>
+        <Pressable
+          onPress={() => navigation.navigate('Settings')}
+          style={styles.settingsBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Open settings"
+        >
+          <Text style={styles.settingsLabel}>Settings</Text>
+        </Pressable>
+      </View>
+
+      <Text style={styles.kicker}>Channel status</Text>
+      <ChannelStrip segments={segments} />
+
+      <View style={styles.block}>
+        <Text style={styles.sectionLabel}>Active profile</Text>
+        <Text style={styles.profileName}>
+          {activeProfile?.name ?? 'None selected'}
+        </Text>
+        <Text style={styles.meta}>
+          {activeProfile?.webhook.url
+            ? activeProfile.webhook.url
+            : 'No webhook URL yet'}
+        </Text>
+      </View>
+
+      <View style={styles.block}>
+        <Text style={styles.sectionLabel}>TTS engine</Text>
+        <Text style={styles.body}>{providerLabel(tts.provider)}</Text>
+      </View>
+
+      <View style={styles.block}>
+        <Text style={styles.sectionLabel}>Notifications</Text>
+        <Text style={styles.body}>
+          {notifications.fcmEnabled
+            ? 'Marked enabled — FCM wiring comes in Phase 6'
+            : 'Not connected (Phase 6)'}
+        </Text>
+      </View>
+
+      <View style={styles.block}>
+        <Text style={styles.sectionLabel}>Last interaction</Text>
+        <Text style={styles.placeholder}>No interactions yet — voice arrives in Phase 2</Text>
+      </View>
+
+      <View style={styles.block}>
+        <Text style={styles.sectionLabel}>Recent notifications</Text>
+        <Text style={styles.placeholder}>Inbox arrives in Phase 8</Text>
+      </View>
+
+      {showSetup ? (
+        <Pressable
+          style={styles.cta}
+          onPress={() => navigation.navigate('Profiles')}
+          accessibilityRole="button"
+        >
+          <Text style={styles.ctaText}>Set up Hermes</Text>
+          <Text style={styles.ctaHint}>Create a backend profile when you are ready</Text>
+        </Pressable>
+      ) : null}
+    </Screen>
+  );
+}
+
+const styles = StyleSheet.create({
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: touch.min,
+  },
+  brand: {
+    ...typeScale.brand,
+    color: colors.foam,
+  },
+  settingsBtn: {
+    minHeight: touch.min,
+    minWidth: touch.min,
+    justifyContent: 'center',
+    paddingHorizontal: space.sm,
+  },
+  settingsLabel: {
+    ...typeScale.label,
+    color: colors.lanternReady,
+  },
+  kicker: {
+    ...typeScale.label,
+    color: colors.mist,
+  },
+  block: {
+    backgroundColor: colors.surface,
+    borderRadius: 10,
+    padding: space.md,
+    borderWidth: 1,
+    borderColor: colors.outline,
+    gap: space.xs,
+  },
+  sectionLabel: {
+    ...typeScale.label,
+    color: colors.mist,
+  },
+  profileName: {
+    ...typeScale.headline,
+    color: colors.foam,
+  },
+  body: {
+    ...typeScale.body,
+    color: colors.foam,
+  },
+  meta: {
+    ...typeScale.caption,
+    color: colors.mist,
+  },
+  placeholder: {
+    ...typeScale.body,
+    color: colors.lanternOff,
+  },
+  cta: {
+    backgroundColor: colors.brandBand,
+    borderRadius: 12,
+    padding: space.md,
+    borderWidth: 1,
+    borderColor: colors.lanternReady,
+    gap: space.xs,
+    minHeight: touch.min,
+  },
+  ctaText: {
+    ...typeScale.title,
+    color: colors.foam,
+  },
+  ctaHint: {
+    ...typeScale.caption,
+    color: colors.mist,
+  },
+});
