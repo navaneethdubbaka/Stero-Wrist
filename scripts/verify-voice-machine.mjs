@@ -235,5 +235,45 @@ assert('empty IDLE with message', empty.state === 'IDLE' && !!empty.context.erro
 assert('retry ends IDLE', failRetry.state === 'IDLE');
 assert('retry reply', failRetry.context.lastReply === 'OK');
 
+// Conversation helper: same sessionId reused across ACTIVATE after SPEAK_DONE.
+const conversation = run([
+  { type: 'ACTIVATE', sessionId: 'conv-1' },
+  { type: 'STT_STARTED' },
+  { type: 'SPEECH_ENDED' },
+  { type: 'TRANSCRIPT_FINAL', transcript: 'Turn one' },
+  { type: 'REQUEST_SENT' },
+  { type: 'RESPONSE_RECEIVED', reply: 'Ack 1', sessionId: 'conv-1' },
+  { type: 'SPEAK_DONE' },
+  { type: 'ACTIVATE', sessionId: 'conv-1' },
+  { type: 'STT_STARTED' },
+  { type: 'SPEECH_ENDED' },
+  { type: 'TRANSCRIPT_FINAL', transcript: 'Turn two' },
+  { type: 'REQUEST_SENT' },
+  { type: 'RESPONSE_RECEIVED', reply: 'Ack 2', sessionId: 'conv-1' },
+  { type: 'SPEAK_DONE' },
+]);
+assert('conversation ends IDLE', conversation.state === 'IDLE');
+assert(
+  'conversation keeps session',
+  conversation.context.sessionId === 'conv-1',
+);
+assert('conversation last reply', conversation.context.lastReply === 'Ack 2');
+
+function shouldContinueConversation(mode, turns, turnCap) {
+  return mode === 'conversation' && turns < turnCap;
+}
+assert(
+  'conversation continue under cap',
+  shouldContinueConversation('conversation', 2, 8) === true,
+);
+assert(
+  'conversation stop at cap',
+  shouldContinueConversation('conversation', 8, 8) === false,
+);
+assert(
+  'single request never auto-continues',
+  shouldContinueConversation('single_request', 0, 8) === false,
+);
+
 if (failed) process.exit(1);
 console.log('All voice machine checks passed.');

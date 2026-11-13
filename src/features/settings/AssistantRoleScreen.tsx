@@ -35,10 +35,19 @@ export function AssistantRoleScreen() {
 
       {Platform.OS !== 'android' ? (
         <View style={styles.banner}>
-          <Text style={styles.bannerTitle}>Android only</Text>
+          <Text style={styles.bannerTitle}>iOS activation</Text>
           <Text style={styles.bannerBody}>
-            iOS has no third-party default-assistant role. Use Shortcuts → Open
-            URL stero-wrist://activate for phone-mic activation.
+            iOS has no third-party default-assistant role, and Apple Watch mic /
+            SiriKit App Intents are out of scope for v1. Use Shortcuts (or Action
+            Button / Back Tap) to open the deep link below — cold start and warm
+            resume both activate a phone-mic voice session.
+          </Text>
+          <Text style={styles.code}>stero-wrist://activate</Text>
+          <Text style={styles.bannerBody}>
+            Shortcuts setup: New Shortcut → Open URLs → paste
+            stero-wrist://activate → Add to Home Screen, Action Button, or Back
+            Tap. Optional: ask Siri “Hey Siri, run Stero” after naming the
+            Shortcut.
           </Text>
         </View>
       ) : !available ? (
@@ -133,7 +142,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.outline,
     padding: 16,
-    gap: 6,
+    gap: 8,
   },
   bannerTitle: {
     ...typeScale.label,
@@ -142,5 +151,10 @@ const styles = StyleSheet.create({
   bannerBody: {
     ...typeScale.body,
     color: colors.mist,
+  },
+  code: {
+    ...typeScale.label,
+    color: colors.lanternReady,
+    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
   },
 });

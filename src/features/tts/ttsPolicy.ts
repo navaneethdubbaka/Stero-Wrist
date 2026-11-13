@@ -1,16 +1,14 @@
-import type { TtsProviderId } from '../../shared/types/settings';
+import type {
+  TtsEventOverrideKey,
+  TtsProviderId,
+} from '../../shared/types/settings';
 
-export type TtsEventKind =
-  | 'assistant_response'
-  | 'notification_critical'
-  | 'notification_high'
-  | 'notification_normal'
-  | 'notification_low';
+export type TtsEventKind = TtsEventOverrideKey;
 
 /**
  * Per-event TTS policy map.
  * Whether a notification is spoken is gated by priorityPolicy (Phase 7);
- * this map selects provider id (cloud still falls back to system until Phase 9).
+ * this map selects provider id (or silent).
  */
 export type TtsPolicyMap = Record<TtsEventKind, TtsProviderId | 'silent'>;
 
@@ -25,11 +23,10 @@ export const DEFAULT_TTS_POLICY: TtsPolicyMap = {
 export function resolvePolicyProvider(
   event: TtsEventKind,
   settingsProvider: TtsProviderId,
-  _policy: TtsPolicyMap = DEFAULT_TTS_POLICY,
+  eventProviders?: Partial<Record<TtsEventKind, TtsProviderId | 'silent'>>,
 ): TtsProviderId | 'silent' {
-  // Provider selection follows user TTS setting; priority engine gates speak.
-  void _policy;
-  void event;
+  const override = eventProviders?.[event];
+  if (override !== undefined) return override;
   return settingsProvider;
 }
 

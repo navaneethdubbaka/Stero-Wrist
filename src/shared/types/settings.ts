@@ -36,6 +36,8 @@ export type BackendProfile = {
   name: string;
   webhook: WebhookConfig;
   ttsProfileId?: string;
+  /** When set, merges over global TTS for this profile. */
+  ttsOverride?: Partial<TtsSettings>;
 };
 
 export type AssistantSettings = {
@@ -45,6 +47,13 @@ export type AssistantSettings = {
   language: string;
 };
 
+export type TtsEventOverrideKey =
+  | 'assistant_response'
+  | 'notification_critical'
+  | 'notification_high'
+  | 'notification_normal'
+  | 'notification_low';
+
 export type TtsSettings = {
   provider: TtsProviderId;
   voice: string;
@@ -52,7 +61,17 @@ export type TtsSettings = {
   speed: number;
   model: string;
   voiceReferenceId: string;
-  /** SecureStore key for cloud API key when set. */
+  /**
+   * HTTPS TTS gateway URL. Cloud providers POST here (no provider secrets in prod).
+   * Empty + cloud provider → system fallback (dev-only direct key path warned in UI).
+   */
+  gatewayUrl: string;
+  /**
+   * Optional per-event provider overrides (`silent` skips speak for that event).
+   * Missing keys inherit `provider`.
+   */
+  eventProviders?: Partial<Record<TtsEventOverrideKey, TtsProviderId | 'silent'>>;
+  /** SecureStore key for cloud API key when set (dev / gateway auth only). */
   apiKeySecretId?: string;
 };
 
@@ -77,6 +96,11 @@ export type NotificationSettings = {
   criticalDuringQuietHours: boolean;
   /** 0..1 passed to system TTS */
   speechVolume: number;
+  /**
+   * When false, inbox stores title only (message cleared) for payload minimization.
+   * Default true for full inbox UX.
+   */
+  storeFullNotificationBody: boolean;
 };
 
 export function createDefaultPriorityRules(): Record<
@@ -94,7 +118,11 @@ export function createDefaultPriorityRules(): Record<
 /** Mic preference — actual route is probed at listen time. */
 export type AudioInputPreference = 'auto' | 'watch' | 'phone';
 
-export type AudioOutputPreference = 'phone_speaker';
+/** Playback preference applied after SCO teardown, before TTS. */
+export type AudioOutputPreference =
+  | 'phone_speaker'
+  | 'earbuds'
+  | 'bluetooth';
 
 export type AudioSettings = {
   inputDevice: AudioInputPreference;
@@ -151,6 +179,7 @@ export function createDefaultSettings(): AppSettings {
       speed: 1,
       model: '',
       voiceReferenceId: '',
+      gatewayUrl: '',
     },
     notifications: {
       fcmEnabled: false,
@@ -162,10 +191,20 @@ export function createDefaultSettings(): AppSettings {
       quietHoursEnd: '07:00',
       criticalDuringQuietHours: true,
       speechVolume: 1,
+      storeFullNotificationBody: true,
     },
     audio: {
       inputDevice: 'auto',
       outputDevice: 'phone_speaker',
     },
   };
+}
+
+export function normalizeOutputPreference(
+  value: unknown,
+): AudioOutputPreference {
+  if (value === 'earbuds' || value === 'bluetooth' || value === 'phone_speaker') {
+    return value;
+  }
+  return 'phone_speaker';
 }

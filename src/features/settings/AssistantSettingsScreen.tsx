@@ -1,20 +1,68 @@
-import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { Screen } from '../../shared/ui/Screen';
 import { FormField } from '../../shared/ui/FormField';
 import { colors, space, touch, type as typeScale } from '../../shared/theme/tokens';
 import { useSettingsStore } from './settingsStore';
 import type { InteractionMode } from '../../shared/types/settings';
+import { prefsGetString, prefsSetString } from '../../shared/storage/prefs';
+
+const CONTINUOUS_WARN_KEY = 'stero.continuous.batteryWarned';
 
 const MODES: { id: InteractionMode; label: string; hint: string }[] = [
-  { id: 'single_request', label: 'Single Request', hint: 'Default — one utterance per activation' },
-  { id: 'conversation', label: 'Conversation', hint: 'Phase 9' },
-  { id: 'continuous', label: 'Continuous', hint: 'Phase 9' },
-  { id: 'notification_only', label: 'Notification Only', hint: 'Voice off; keep FCM later' },
+  {
+    id: 'single_request',
+    label: 'Single Request',
+    hint: 'One utterance per activation',
+  },
+  {
+    id: 'conversation',
+    label: 'Conversation',
+    hint: 'After each reply, listen again (same session, capped turns)',
+  },
+  {
+    id: 'continuous',
+    label: 'Continuous',
+    hint: 'Keeps STT running — higher battery use; confirm on enable',
+  },
+  {
+    id: 'notification_only',
+    label: 'Notification Only',
+    hint: 'Voice off; FCM / inbox still work',
+  },
 ];
 
 export function AssistantSettingsScreen() {
   const assistant = useSettingsStore((s) => s.settings.assistant);
   const setAssistant = useSettingsStore((s) => s.setAssistant);
+
+  const selectMode = (mode: InteractionMode) => {
+    if (mode !== 'continuous') {
+      setAssistant({ defaultMode: mode });
+      return;
+    }
+
+    const already = prefsGetString(CONTINUOUS_WARN_KEY) === '1';
+    if (already) {
+      setAssistant({ defaultMode: 'continuous' });
+      return;
+    }
+
+    Alert.alert(
+      'Battery warning',
+      'Continuous mode keeps speech recognition running and uses more battery. Mic/SCO stop only when you Cancel. Enable anyway?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Enable Continuous',
+          style: 'destructive',
+          onPress: () => {
+            prefsSetString(CONTINUOUS_WARN_KEY, '1');
+            setAssistant({ defaultMode: 'continuous' });
+          },
+        },
+      ],
+    );
+  };
 
   return (
     <Screen>
@@ -37,13 +85,20 @@ export function AssistantSettingsScreen() {
               styles.mode,
               assistant.defaultMode === mode.id && styles.modeOn,
             ]}
-            onPress={() => setAssistant({ defaultMode: mode.id })}
+            onPress={() => selectMode(mode.id)}
           >
             <Text style={styles.modeTitle}>{mode.label}</Text>
             <Text style={styles.modeHint}>{mode.hint}</Text>
           </Pressable>
         ))}
       </View>
+
+      {assistant.defaultMode === 'continuous' ? (
+        <Text style={styles.warn}>
+          Continuous is active. Cancel the session to stop recognition and
+          release the mic. Prefer Single Request when battery matters.
+        </Text>
+      ) : null}
 
       <FormField
         label="Silence threshold (ms)"
@@ -108,5 +163,9 @@ const styles = StyleSheet.create({
   modeHint: {
     ...typeScale.caption,
     color: colors.mist,
+  },
+  warn: {
+    ...typeScale.caption,
+    color: colors.lanternPending,
   },
 });

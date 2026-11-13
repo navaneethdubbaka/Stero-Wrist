@@ -247,6 +247,21 @@ export function NotificationSettingsScreen() {
         hint="Applied to system TTS for notification speech"
       />
 
+      <View style={styles.row}>
+        <View style={styles.text}>
+          <Text style={styles.label}>Store full notification body</Text>
+          <Text style={styles.caption}>
+            Off = inbox keeps title only (payload minimization)
+          </Text>
+        </View>
+        <Switch
+          value={notifications.storeFullNotificationBody}
+          onValueChange={(storeFullNotificationBody) =>
+            setNotifications({ storeFullNotificationBody })
+          }
+        />
+      </View>
+
       <View style={styles.banner}>
         <Text style={styles.bannerTitle}>Session conflict</Text>
         <Text style={styles.bannerBody}>

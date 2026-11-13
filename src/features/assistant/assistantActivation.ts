@@ -1,4 +1,4 @@
-import { Linking, Platform } from 'react-native';
+import { AppState, Linking, Platform } from 'react-native';
 import {
   addAssistantActivateListener,
   consumePendingActivation,
@@ -7,6 +7,8 @@ import {
 import { activateVoiceSession } from './VoiceSessionController';
 
 let subscribed = false;
+/** Dedup rapid cold-start + url event double fire. */
+let lastActivateAt = 0;
 
 function handleActivateUrl(url: string | null): void {
   if (!url) return;
@@ -15,12 +17,17 @@ function handleActivateUrl(url: string | null): void {
     lower.startsWith('stero-wrist://activate') ||
     lower.includes('://activate')
   ) {
+    const now = Date.now();
+    if (now - lastActivateAt < 800) return;
+    lastActivateAt = now;
     void activateVoiceSession({ trigger: 'deeplink' });
   }
 }
 
 /**
  * Subscribe once at app boot: native VoiceInteraction + deep link → voice session.
+ * Cold start: getInitialURL; warm: url events; iOS Shortcut/Action Button/Back Tap
+ * all open stero-wrist://activate.
  */
 export function startAssistantActivationListeners(): () => void {
   if (subscribed) {
@@ -49,12 +56,21 @@ export function startAssistantActivationListeners(): () => void {
   });
   subs.push(linkingSub);
 
+  // Cold start: process launch URL after JS is ready.
   void Linking.getInitialURL().then((url) => {
     handleActivateUrl(url ?? null);
   });
 
+  // Some iOS cold-start paths deliver the URL slightly after getInitialURL null.
   if (Platform.OS === 'ios') {
-    // Shortcut / Action Button open the same URL scheme.
+    const appSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void Linking.getInitialURL().then((url) => {
+          handleActivateUrl(url ?? null);
+        });
+      }
+    });
+    subs.push(appSub);
   }
 
   return () => {

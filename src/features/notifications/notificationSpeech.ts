@@ -2,11 +2,11 @@ import type { VoiceState } from '../assistant/voiceStateMachine';
 import { stopScoAndMicService } from '../assistant/audioRoute';
 import { useVoiceSessionStore } from '../assistant/voiceSessionStore';
 import { useSettingsStore } from '../settings/settingsStore';
+import { applyAudioOutput } from '../assistant/audioOutput';
 import {
-  resolveTtsProvider,
   stopActiveTts,
+  synthesizeAndPlay,
 } from '../tts/resolveTtsProvider';
-import { ttsOptionsFromSettings } from '../tts/TtsProvider';
 import type { TtsEventKind } from '../tts/ttsPolicy';
 import { postDeliveryAck } from './deliveryAck';
 import { markSpoken as markSpokenInDb } from './inboxRepository';
@@ -104,12 +104,14 @@ export async function speakNotification(note: HermesNotification): Promise<void>
 
   try {
     await stopScoAndMicService();
+    await applyAudioOutput(settings.audio.outputDevice);
     const event = ttsEventForPriority(note.priority);
-    const resolved = resolveTtsProvider(settings.tts.provider, event);
-    if (resolved.silent || !resolved.provider) {
-      return;
-    }
+    const text = settings.notifications.storeFullNotificationBody
+      ? `${note.title}. ${note.message}`
+      : note.title;
+    const volume = clampSpeechVolume(settings.notifications.speechVolume);
 
+    // Dedupe before speak so interrupt/retry paths do not double-speak.
     markSpoken(note.notification_id);
     try {
       await markSpokenInDb(note.notification_id);
@@ -117,15 +119,9 @@ export async function speakNotification(note: HermesNotification): Promise<void>
     } catch {
       // Inbox DB optional for speech path.
     }
-    const text = `${note.title}. ${note.message}`;
-    const volume = clampSpeechVolume(settings.notifications.speechVolume);
-    await resolved.provider.synthesize(
-      text,
-      ttsOptionsFromSettings({
-        ...settings.tts,
-        volume,
-      }),
-    );
+
+    const result = await synthesizeAndPlay(text, event, volume);
+    void result;
   } catch {
     // Non-blocking — notification display already happened.
   } finally {

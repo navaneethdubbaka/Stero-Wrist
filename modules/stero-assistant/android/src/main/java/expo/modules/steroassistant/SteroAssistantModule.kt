@@ -51,6 +51,10 @@ class SteroAssistantModule : Module() {
       AudioRouteHelper.getActiveInputInfo(context)
     }
 
+    AsyncFunction("preferOutputRoute") { preference: String ->
+      AudioRouteHelper.preferOutputRoute(context, preference)
+    }
+
     AsyncFunction("consumePendingActivation") {
       AssistantActivationBridge.consumePending()
     }

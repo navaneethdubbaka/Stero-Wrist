@@ -13,6 +13,7 @@ import { prefsGetString, prefsSetString } from '../../shared/storage/prefs';
 import { secretDelete, secretSet, ttsApiKeySecretId } from '../../shared/storage/secrets';
 import { normalizeInputPreference } from '../assistant/audioRoutePolicy';
 import { clampSpeechVolume } from '../notifications/priorityPolicy';
+import { normalizeOutputPreference } from '../../shared/types/settings';
 
 function mergeNotificationSettings(
   defaults: NotificationSettings,
@@ -54,6 +55,8 @@ function mergeNotificationSettings(
         ? parsed.speechVolume
         : defaults.speechVolume,
     ),
+    storeFullNotificationBody:
+      parsed?.storeFullNotificationBody ?? defaults.storeFullNotificationBody,
   };
 }
 
@@ -93,7 +96,18 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         ...defaults,
         ...parsed,
         assistant: { ...defaults.assistant, ...parsed.assistant },
-        tts: { ...defaults.tts, ...parsed.tts },
+        tts: {
+          ...defaults.tts,
+          ...parsed.tts,
+          gatewayUrl:
+            typeof parsed.tts?.gatewayUrl === 'string'
+              ? parsed.tts.gatewayUrl
+              : defaults.tts.gatewayUrl,
+          eventProviders: {
+            ...(defaults.tts.eventProviders ?? {}),
+            ...(parsed.tts?.eventProviders ?? {}),
+          },
+        },
         notifications: mergeNotificationSettings(
           defaults.notifications,
           parsed.notifications,
@@ -102,7 +116,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           ...defaults.audio,
           ...parsed.audio,
           inputDevice: normalizeInputPreference(parsed.audio?.inputDevice),
-          outputDevice: 'phone_speaker',
+          outputDevice: normalizeOutputPreference(parsed.audio?.outputDevice),
         },
       };
       set({

@@ -89,12 +89,15 @@ async function ingestParsedNotification(
   options: { hasOsBody: boolean },
 ): Promise<void> {
   const settings = useSettingsStore.getState().settings.notifications;
+  const forInbox: HermesNotification = settings.storeFullNotificationBody
+    ? parsed
+    : { ...parsed, message: '' };
 
   let isDuplicate = false;
   try {
-    const result = await upsertIncoming(parsed, {
+    const result = await upsertIncoming(forInbox, {
       dedupeKey: parsed.dedupe_key ?? null,
-      raw: parsed,
+      raw: settings.storeFullNotificationBody ? parsed : { ...parsed, message: '' },
     });
     isDuplicate = result.isDuplicate;
     void postDeliveryAck(result.row.notificationId, 'received');
@@ -127,8 +130,12 @@ function handleIncomingNotification(
   const parsed = parseHermesNotification(raw);
   if (!parsed) {
     if (__DEV__) {
+      // Never log full FCM bodies or tokens — keys only.
       // eslint-disable-next-line no-console
-      console.log('[fcm] ignored malformed payload', raw);
+      console.log(
+        '[fcm] ignored malformed payload keys',
+        raw && typeof raw === 'object' ? Object.keys(raw as object) : typeof raw,
+      );
     }
     return;
   }

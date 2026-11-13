@@ -83,6 +83,74 @@ object AudioRouteHelper {
     }
   }
 
+  /**
+   * Prefer playback output after SCO teardown. Best-effort; no OEM watch-speaker hacks.
+   * preference: phone_speaker | earbuds | bluetooth
+   */
+  fun preferOutputRoute(context: Context, preference: String): Map<String, Any> {
+    val am = audioManager(context)
+    // Ensure SCO is down so A2DP / speaker can take over for media playback.
+    stopInputRoute(context)
+
+    try {
+      am.mode = AudioManager.MODE_NORMAL
+      when (preference) {
+        "bluetooth" -> {
+          val bt = findBluetoothOutput(am)
+          if (bt != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            am.setCommunicationDevice(bt)
+            return mapOf(
+              "label" to deviceLabel(bt, "Bluetooth"),
+              "kind" to "bluetooth",
+              "applied" to true,
+            )
+          }
+          // Pre-S: speakerphone off lets BT A2DP reclaim media when available.
+          am.isSpeakerphoneOn = false
+          return mapOf(
+            "label" to "Bluetooth (best-effort)",
+            "kind" to "bluetooth",
+            "applied" to (bt != null),
+          )
+        }
+        "earbuds" -> {
+          val wired = findWiredOutput(am)
+          if (wired != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            am.setCommunicationDevice(wired)
+            return mapOf(
+              "label" to deviceLabel(wired, "Earbuds"),
+              "kind" to "earbuds",
+              "applied" to true,
+            )
+          }
+          am.isSpeakerphoneOn = false
+          return mapOf(
+            "label" to "Earbuds (best-effort)",
+            "kind" to "earbuds",
+            "applied" to (wired != null),
+          )
+        }
+        else -> {
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            am.clearCommunicationDevice()
+          }
+          am.isSpeakerphoneOn = true
+          return mapOf(
+            "label" to "Phone speaker",
+            "kind" to "phone_speaker",
+            "applied" to true,
+          )
+        }
+      }
+    } catch (_: Exception) {
+      return mapOf(
+        "label" to "Phone speaker",
+        "kind" to "phone_speaker",
+        "applied" to false,
+      )
+    }
+  }
+
   private fun audioManager(context: Context): AudioManager {
     return context.applicationContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
   }
@@ -91,6 +159,23 @@ object AudioRouteHelper {
     val devices = am.getDevices(AudioManager.GET_DEVICES_INPUTS)
     return devices.firstOrNull {
       it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+    }
+  }
+
+  private fun findBluetoothOutput(am: AudioManager): AudioDeviceInfo? {
+    val devices = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+    return devices.firstOrNull {
+      it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+    }
+  }
+
+  private fun findWiredOutput(am: AudioManager): AudioDeviceInfo? {
+    val devices = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+    return devices.firstOrNull {
+      it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+        it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+        it.type == AudioDeviceInfo.TYPE_USB_HEADSET
     }
   }
 

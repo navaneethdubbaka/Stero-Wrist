@@ -15,12 +15,19 @@ export type {
 
 type EventSub = { remove: () => void };
 
+export type OutputRouteResult = {
+  label: string;
+  kind: string;
+  applied: boolean;
+};
+
 type NativeSteroAssistant = {
   isDefaultAssistant(): Promise<boolean>;
   openAssistantSettings(): Promise<void>;
   startInputRoute(preferWatch: boolean): Promise<ActiveInputInfo>;
   stopInputRoute(): Promise<void>;
   getActiveInputInfo(): Promise<ActiveInputInfo>;
+  preferOutputRoute(preference: string): Promise<OutputRouteResult>;
   consumePendingActivation(): Promise<AssistantActivatePayload | null>;
   startMicForegroundService(): Promise<void>;
   stopMicForegroundService(): Promise<void>;
@@ -69,6 +76,15 @@ export async function stopInputRoute(): Promise<void> {
 export async function getActiveInputInfo(): Promise<ActiveInputInfo> {
   if (!Native) return FALLBACK_INPUT;
   return Native.getActiveInputInfo();
+}
+
+export async function preferOutputRoute(
+  preference: string,
+): Promise<OutputRouteResult> {
+  if (!Native) {
+    return { label: 'Phone speaker', kind: 'phone_speaker', applied: false };
+  }
+  return Native.preferOutputRoute(preference);
 }
 
 export async function consumePendingActivation(): Promise<AssistantActivatePayload | null> {
