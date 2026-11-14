@@ -35,6 +35,12 @@ type NativeSteroAssistant = {
   isDefaultAssistant(): Promise<boolean>;
   getAssistantStatus(): Promise<AssistantStatus>;
   openAssistantSettings(): Promise<void>;
+  applyVoiceInteractionSelection(): Promise<{
+    ok: boolean;
+    error?: string;
+    voiceInteractionService?: string;
+    assistant?: string;
+  }>;
   startInputRoute(preferWatch: boolean): Promise<ActiveInputInfo>;
   stopInputRoute(): Promise<void>;
   getActiveInputInfo(): Promise<ActiveInputInfo>;
@@ -85,6 +91,18 @@ export async function getAssistantStatus(): Promise<AssistantStatus> {
 export async function openAssistantSettings(): Promise<void> {
   if (!Native) return;
   await Native.openAssistantSettings();
+}
+
+export async function applyVoiceInteractionSelection(): Promise<{
+  ok: boolean;
+  error?: string;
+  voiceInteractionService?: string;
+  assistant?: string;
+}> {
+  if (!Native) {
+    return { ok: false, error: 'Native module unavailable' };
+  }
+  return Native.applyVoiceInteractionSelection();
 }
 
 export async function startInputRoute(

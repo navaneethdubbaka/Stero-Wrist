@@ -9,14 +9,19 @@ const path = require('path');
 const PERMISSIONS = [
   'android.permission.RECORD_AUDIO',
   'android.permission.MODIFY_AUDIO_SETTINGS',
+  'android.permission.BLUETOOTH',
   'android.permission.BLUETOOTH_CONNECT',
+  'android.permission.BLUETOOTH_SCAN',
   'android.permission.FOREGROUND_SERVICE',
   'android.permission.FOREGROUND_SERVICE_MICROPHONE',
   'android.permission.POST_NOTIFICATIONS',
+  // Declared so `adb shell pm grant ... WRITE_SECURE_SETTINGS` can stick voice_interaction_service.
+  'android.permission.WRITE_SECURE_SETTINGS',
 ];
 
 const VIS = 'expo.modules.steroassistant.SteroVoiceInteractionService';
 const VISS = 'expo.modules.steroassistant.SteroVoiceInteractionSessionService';
+const RECOG = 'expo.modules.steroassistant.SteroRecognitionService';
 const FGS = 'expo.modules.steroassistant.SteroMicForegroundService';
 const ASSIST = 'expo.modules.steroassistant.SteroAssistActivity';
 
@@ -110,6 +115,34 @@ const withSteroAssistant = (config) => {
       },
     });
 
+    // Required by VoiceInteractionServiceInfo — without it dumpsys reports
+    // "NOT VALID: No recognitionService specified" and Assist falls back to settings.
+    ensureService(application, {
+      $: {
+        'android:name': RECOG,
+        'android:permission': 'android.permission.BIND_RECOGNITION_SERVICE',
+        'android:exported': 'true',
+      },
+      'intent-filter': [
+        {
+          action: [
+            { $: { 'android:name': 'android.speech.RecognitionService' } },
+          ],
+          category: [
+            { $: { 'android:name': 'android.intent.category.DEFAULT' } },
+          ],
+        },
+      ],
+      'meta-data': [
+        {
+          $: {
+            'android:name': 'android.speech',
+            'android:resource': '@xml/stero_recognition_service',
+          },
+        },
+      ],
+    });
+
     ensureService(application, {
       $: {
         'android:name': FGS,
@@ -168,12 +201,20 @@ const withSteroAssistant = (config) => {
       const xml = `<?xml version="1.0" encoding="utf-8"?>
 <voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:sessionService="${VISS}"
+    android:recognitionService="${RECOG}"
     android:settingsActivity="com.sterowrist.app.MainActivity"
     android:supportsAssist="true"
     android:supportsLaunchVoiceAssistFromKeyguard="true"
     android:supportsLocalInteraction="true" />
 `;
       fs.writeFileSync(xmlPath, xml, 'utf8');
+
+      const recogXmlPath = path.join(xmlDir, 'stero_recognition_service.xml');
+      const recogXml = `<?xml version="1.0" encoding="utf-8"?>
+<recognition-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="com.sterowrist.app.MainActivity" />
+`;
+      fs.writeFileSync(recogXmlPath, recogXml, 'utf8');
       return config;
     },
   ]);

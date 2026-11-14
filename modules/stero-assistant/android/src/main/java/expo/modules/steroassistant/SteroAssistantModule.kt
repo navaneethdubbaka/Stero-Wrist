@@ -47,6 +47,10 @@ class SteroAssistantModule : Module() {
       openAssistantSettingsInternal()
     }
 
+    AsyncFunction("applyVoiceInteractionSelection") {
+      applyVoiceInteractionSelectionInternal()
+    }
+
     AsyncFunction("startInputRoute") { preferWatch: Boolean ->
       AudioRouteHelper.startInputRoute(context, preferWatch)
     }
@@ -123,6 +127,37 @@ class SteroAssistantModule : Module() {
       Settings.Secure.getString(context.contentResolver, key)
     } catch (_: Exception) {
       null
+    }
+  }
+
+  /**
+   * Writes Secure settings so OEM / watch “Talk to assistant” actually targets Stero.
+   * Requires WRITE_SECURE_SETTINGS (grant via adb once).
+   */
+  private fun applyVoiceInteractionSelectionInternal(): Map<String, Any> {
+    val vis = voiceInteractionComponent
+    val assist = "${context.packageName}/expo.modules.steroassistant.SteroAssistActivity"
+    return try {
+      val cr = context.contentResolver
+      Settings.Secure.putString(cr, "voice_interaction_service", vis)
+      Settings.Secure.putString(cr, "assistant", assist)
+      mapOf(
+        "ok" to true,
+        "voiceInteractionService" to (Settings.Secure.getString(cr, "voice_interaction_service") ?: ""),
+        "assistant" to (Settings.Secure.getString(cr, "assistant") ?: ""),
+      )
+    } catch (error: SecurityException) {
+      mapOf(
+        "ok" to false,
+        "error" to "WRITE_SECURE_SETTINGS not granted. Run: adb shell pm grant ${context.packageName} android.permission.WRITE_SECURE_SETTINGS",
+        "voiceInteractionService" to vis,
+      )
+    } catch (error: Exception) {
+      mapOf(
+        "ok" to false,
+        "error" to (error.message ?: "Failed to apply selection"),
+        "voiceInteractionService" to vis,
+      )
     }
   }
 

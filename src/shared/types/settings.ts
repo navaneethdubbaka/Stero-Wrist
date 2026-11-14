@@ -198,8 +198,8 @@ export function createDefaultSettings(): AppSettings {
       storeFullNotificationBody: true,
     },
     audio: {
-      /** Prefer watch HFP mic when connected. */
-      inputDevice: 'auto',
+      /** Prefer watch HFP mic when connected (Boult / HFP watches). */
+      inputDevice: 'watch',
       /** Prefer watch speaker over HFP SCO when available. */
       outputDevice: 'watch_speaker',
     },
