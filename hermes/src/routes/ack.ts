@@ -1,0 +1,3 @@
+import type { FastifyInstance } from 'fastify'; import type { Store } from '../store/types.ts';
+type Body = { notification_id: string; event: string; timestamp: string; app: 'stero-wrist' };
+export function registerAckRoute(app: FastifyInstance, store: Store): void { app.post<{ Body: Body }>('/ack', { schema: { body: { type: 'object', required: ['notification_id','event','timestamp','app'], additionalProperties: false, properties: { notification_id: { type: 'string', minLength: 1 }, event: { type: 'string', minLength: 1 }, timestamp: { type: 'string', minLength: 1 }, app: { const: 'stero-wrist' } } } } }, async request => { store.recordAck({ ...request.body, received_at: new Date().toISOString() }); return { ok: true }; }); }

@@ -1,0 +1,3 @@
+import type { FastifyInstance } from 'fastify'; import type { Store } from '../store/types.ts';
+type Body = { device_token: string; platform: 'android' | 'ios'; app: 'stero-wrist'; profile_id: string };
+export function registerDevicesRoute(app: FastifyInstance, store: Store): void { app.post<{ Body: Body }>('/devices', { schema: { body: { type: 'object', required: ['device_token','platform','app','profile_id'], additionalProperties: false, properties: { device_token: { type: 'string', minLength: 1 }, platform: { enum: ['android','ios'] }, app: { const: 'stero-wrist' }, profile_id: { type: 'string', minLength: 1 } } } } }, async request => { store.upsertDevice(request.body); return { ok: true }; }); }

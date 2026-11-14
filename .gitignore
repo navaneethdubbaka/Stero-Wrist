@@ -37,6 +37,10 @@ secrets/
 
 # --- Dependencies ---
 node_modules/
+hermes/node_modules/
+hermes/dist/
+hermes/data/
+hermes/.env
 .pnp
 .pnp.js
 .yarn/*
