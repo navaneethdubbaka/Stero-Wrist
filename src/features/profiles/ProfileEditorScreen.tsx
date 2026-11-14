@@ -12,8 +12,20 @@ import { Screen } from '../../shared/ui/Screen';
 import { FormField } from '../../shared/ui/FormField';
 import { colors, space, touch, type as typeScale } from '../../shared/theme/tokens';
 import { useProfilesStore } from './profilesStore';
-import type { AuthType, WebhookConfig } from '../../shared/types/settings';
+import type {
+  AuthType,
+  TtsProviderId,
+  WebhookConfig,
+} from '../../shared/types/settings';
 import type { RootStackParamList } from '../../app/navigation';
+
+const TTS_OVERRIDE_PROVIDERS: { id: TtsProviderId | ''; label: string }[] = [
+  { id: '', label: 'Use global TTS' },
+  { id: 'system', label: 'System' },
+  { id: 'openai', label: 'OpenAI (gateway)' },
+  { id: 'fish_audio', label: 'Fish Audio (gateway)' },
+  { id: 'custom_http', label: 'Custom HTTP (gateway)' },
+];
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ProfileEditor'>;
 
@@ -219,6 +231,63 @@ export function ProfileEditorScreen({ route, navigation }: Props) {
         }}
         keyboardType="numeric"
       />
+
+      <Text style={styles.section}>TTS override</Text>
+      <Text style={styles.overrideHint}>
+        When set, this profile merges over global Text-to-speech settings while
+        it is active.
+      </Text>
+      <View style={styles.chips}>
+        {TTS_OVERRIDE_PROVIDERS.map((opt) => {
+          const current = profile.ttsOverride?.provider ?? '';
+          const selected = current === opt.id;
+          return (
+            <Pressable
+              key={opt.label}
+              style={[styles.chip, selected && styles.chipOn]}
+              onPress={() => {
+                if (!opt.id) {
+                  updateProfile(profile.id, { ttsOverride: undefined });
+                  return;
+                }
+                updateProfile(profile.id, {
+                  ttsOverride: {
+                    ...(profile.ttsOverride ?? {}),
+                    provider: opt.id,
+                  },
+                });
+              }}
+            >
+              <Text style={styles.chipText}>{opt.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {profile.ttsOverride?.provider ? (
+        <>
+          <FormField
+            label="Override voice"
+            value={profile.ttsOverride.voice ?? ''}
+            onChangeText={(voice) =>
+              updateProfile(profile.id, {
+                ttsOverride: { ...profile.ttsOverride, voice },
+              })
+            }
+            placeholder="Leave blank to keep global"
+          />
+          <FormField
+            label="Override gateway URL"
+            value={profile.ttsOverride.gatewayUrl ?? ''}
+            onChangeText={(gatewayUrl) =>
+              updateProfile(profile.id, {
+                ttsOverride: { ...profile.ttsOverride, gatewayUrl },
+              })
+            }
+            placeholder="Leave blank to keep global"
+            keyboardType="url"
+          />
+        </>
+      ) : null}
     </Screen>
   );
 }
@@ -292,5 +361,9 @@ const styles = StyleSheet.create({
   link: {
     ...typeScale.label,
     color: colors.lanternReady,
+  },
+  overrideHint: {
+    ...typeScale.caption,
+    color: colors.mist,
   },
 });

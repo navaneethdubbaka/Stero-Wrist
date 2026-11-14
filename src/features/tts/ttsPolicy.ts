@@ -1,15 +1,14 @@
-import type { TtsProviderId } from '../../shared/types/settings';
+import type {
+  TtsEventOverrideKey,
+  TtsProviderId,
+} from '../../shared/types/settings';
 
-export type TtsEventKind =
-  | 'assistant_response'
-  | 'notification_critical'
-  | 'notification_high'
-  | 'notification_normal'
-  | 'notification_low';
+export type TtsEventKind = TtsEventOverrideKey;
 
 /**
- * Per-event TTS policy stubs.
- * Phase 4 only speaks assistant_response; notification keys reserved for Phase 7.
+ * Per-event TTS policy map.
+ * Whether a notification is spoken is gated by priorityPolicy (Phase 7);
+ * this map selects provider id (or silent).
  */
 export type TtsPolicyMap = Record<TtsEventKind, TtsProviderId | 'silent'>;
 
@@ -17,20 +16,18 @@ export const DEFAULT_TTS_POLICY: TtsPolicyMap = {
   assistant_response: 'system',
   notification_critical: 'system',
   notification_high: 'system',
-  notification_normal: 'silent',
-  notification_low: 'silent',
+  notification_normal: 'system',
+  notification_low: 'system',
 };
 
 export function resolvePolicyProvider(
   event: TtsEventKind,
   settingsProvider: TtsProviderId,
-  policy: TtsPolicyMap = DEFAULT_TTS_POLICY,
+  eventProviders?: Partial<Record<TtsEventKind, TtsProviderId | 'silent'>>,
 ): TtsProviderId | 'silent' {
-  if (event === 'assistant_response') {
-    // Assistant replies follow the user's selected provider setting.
-    return settingsProvider;
-  }
-  return policy[event];
+  const override = eventProviders?.[event];
+  if (override !== undefined) return override;
+  return settingsProvider;
 }
 
 export function shouldSpeak(provider: TtsProviderId | 'silent'): boolean {

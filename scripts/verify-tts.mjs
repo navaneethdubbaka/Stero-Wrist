@@ -1,5 +1,5 @@
 /**
- * Smoke tests for TTS options mapping + policy resolve (no native audio).
+ * Smoke tests for TTS options mapping + policy resolve + gateway body (no native audio).
  * Run: node scripts/verify-tts.mjs
  */
 
@@ -16,33 +16,54 @@ function ttsOptionsFromSettings(settings) {
   };
 }
 
-const DEFAULT_TTS_POLICY = {
-  assistant_response: 'system',
-  notification_critical: 'system',
-  notification_high: 'system',
-  notification_normal: 'silent',
-  notification_low: 'silent',
-};
-
-function resolvePolicyProvider(event, settingsProvider, policy = DEFAULT_TTS_POLICY) {
-  if (event === 'assistant_response') return settingsProvider;
-  return policy[event];
+function resolvePolicyProvider(event, settingsProvider, eventProviders) {
+  const override = eventProviders?.[event];
+  if (override !== undefined) return override;
+  return settingsProvider;
 }
 
 function shouldSpeak(provider) {
   return provider !== 'silent';
 }
 
-function resolveTtsProvider(settingsProvider, event = 'assistant_response') {
-  const policyChoice = resolvePolicyProvider(event, settingsProvider);
+function resolveTtsProvider(settingsProvider, event = 'assistant_response', tts = {}) {
+  const policyChoice = resolvePolicyProvider(
+    event,
+    settingsProvider,
+    tts.eventProviders,
+  );
   if (!shouldSpeak(policyChoice)) {
     return { silent: true, usedSystemFallback: false };
   }
   const wantsCloud =
-    settingsProvider === 'openai' ||
-    settingsProvider === 'fish_audio' ||
-    settingsProvider === 'custom_http';
-  return { silent: false, usedSystemFallback: wantsCloud };
+    policyChoice === 'openai' ||
+    policyChoice === 'fish_audio' ||
+    policyChoice === 'custom_http';
+  const gateway = (tts.gatewayUrl || '').trim();
+  if (wantsCloud && !gateway) {
+    return { silent: false, usedSystemFallback: true };
+  }
+  if (wantsCloud && gateway) {
+    return { silent: false, usedSystemFallback: false };
+  }
+  return { silent: false, usedSystemFallback: false };
+}
+
+function buildGatewayRequest(provider, text, options) {
+  return {
+    provider,
+    text,
+    voice: options.voice || 'default',
+    model: options.model || '',
+    language: options.language || 'en-US',
+    speed: options.speed || 1,
+    voice_reference_id: options.voiceReferenceId || '',
+  };
+}
+
+function resolveEffectiveTts(globalTts, profile) {
+  if (!profile?.ttsOverride) return globalTts;
+  return { ...globalTts, ...profile.ttsOverride };
 }
 
 let failed = 0;
@@ -69,20 +90,47 @@ assert(
   resolvePolicyProvider('assistant_response', 'openai') === 'openai',
 );
 assert(
-  'normal notify silent',
-  resolvePolicyProvider('notification_normal', 'system') === 'silent',
+  'event override silent',
+  resolvePolicyProvider('notification_low', 'openai', {
+    notification_low: 'silent',
+  }) === 'silent',
 );
 assert(
-  'critical notify system',
-  resolvePolicyProvider('notification_critical', 'openai') === 'system',
+  'critical notify follows settings',
+  resolvePolicyProvider('notification_critical', 'openai') === 'openai',
 );
 
-const cloud = resolveTtsProvider('openai');
-assert('cloud not silent', cloud.silent === false);
-assert('cloud fallback flag', cloud.usedSystemFallback === true);
+const cloudNoGw = resolveTtsProvider('openai', 'assistant_response', {
+  gatewayUrl: '',
+});
+assert('cloud without gateway falls back', cloudNoGw.usedSystemFallback === true);
+assert('cloud without gateway not silent', cloudNoGw.silent === false);
+
+const cloudGw = resolveTtsProvider('openai', 'assistant_response', {
+  gatewayUrl: 'https://gw.example/tts',
+});
+assert('cloud with gateway no fallback flag', cloudGw.usedSystemFallback === false);
 
 const system = resolveTtsProvider('system');
 assert('system no fallback flag', system.usedSystemFallback === false);
+
+const body = buildGatewayRequest('fish_audio', 'Hello', {
+  voice: 'nova',
+  model: 'm1',
+  language: 'en-US',
+  speed: 1.1,
+  voiceReferenceId: 'ref-1',
+});
+assert('gateway provider', body.provider === 'fish_audio');
+assert('gateway text', body.text === 'Hello');
+assert('gateway voice_reference_id', body.voice_reference_id === 'ref-1');
+
+const effective = resolveEffectiveTts(
+  { provider: 'system', gatewayUrl: '', voice: 'a' },
+  { ttsOverride: { provider: 'openai', gatewayUrl: 'https://x' } },
+);
+assert('profile override provider', effective.provider === 'openai');
+assert('profile override gateway', effective.gatewayUrl === 'https://x');
 
 if (failed) process.exit(1);
 console.log('All TTS helper checks passed.');

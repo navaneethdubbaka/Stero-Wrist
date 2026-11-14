@@ -2,6 +2,8 @@ export type SttStartOptions = {
   language: string;
   /** End-of-utterance silence hint (ms). Honored on Android via RecognizerIntent. */
   silenceThresholdMs: number;
+  /** Continuous recognition — emits multiple finals until abort. */
+  continuous?: boolean;
 };
 
 export type SttCallbacks = {

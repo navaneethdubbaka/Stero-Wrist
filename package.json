@@ -14,24 +14,30 @@
     "test:channel": "node scripts/verify-channel-status.mjs",
     "test:webhook": "node scripts/verify-webhook.mjs",
     "test:tts": "node scripts/verify-tts.mjs",
-    "test:audio": "node scripts/verify-audio-route.mjs"
+    "test:audio": "node scripts/verify-audio-route.mjs",
+    "test:notifications": "node scripts/verify-notifications.mjs",
+    "test:priority-speech": "node scripts/verify-priority-speech.mjs",
+    "test:inbox": "node scripts/verify-inbox.mjs"
   },
   "dependencies": {
-    "stero-assistant": "file:./modules/stero-assistant",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-navigation/native": "^7.5.1",
     "@react-navigation/native-stack": "^7.21.0",
     "expo": "~58.0.25",
-    "expo-av": "^16.0.8",
+    "expo-audio": "~58.0.12",
     "expo-dev-client": "~58.0.20",
+    "expo-device": "~58.0.5",
+    "expo-notifications": "~58.1.9",
     "expo-secure-store": "~58.0.3",
     "expo-speech": "~58.0.4",
     "expo-speech-recognition": "^58.0.1",
+    "expo-sqlite": "~58.0.17",
     "expo-status-bar": "~58.0.5",
     "react": "^19.3.0",
     "react-native": "^0.88.1",
     "react-native-safe-area-context": "~5.11.1",
     "react-native-screens": "~4.30.1",
+    "stero-assistant": "file:./modules/stero-assistant",
     "zustand": "^5.1.0"
   },
   "devDependencies": {

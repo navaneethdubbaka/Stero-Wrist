@@ -13,11 +13,16 @@ function jsonEscape(value) {
 }
 
 function fillTemplatePlaceholders(template, vars) {
+  const contextJson =
+    vars.context === undefined || vars.context === null
+      ? 'null'
+      : JSON.stringify(vars.context);
   return template
     .replaceAll('{{text}}', jsonEscape(vars.text))
     .replaceAll('{{session_id}}', jsonEscape(vars.session_id))
     .replaceAll('{{mode}}', jsonEscape(vars.mode))
-    .replaceAll('{{timestamp}}', jsonEscape(vars.timestamp));
+    .replaceAll('{{timestamp}}', jsonEscape(vars.timestamp))
+    .replaceAll('{{context}}', contextJson);
 }
 
 function getByDotPath(value, path) {
@@ -50,7 +55,8 @@ const template = `{
   "source": "stero-wrist",
   "session_id": "{{session_id}}",
   "mode": "{{mode}}",
-  "timestamp": "{{timestamp}}"
+  "timestamp": "{{timestamp}}",
+  "context": {{context}}
 }`;
 
 const filled = fillTemplatePlaceholders(template, {
@@ -58,6 +64,7 @@ const filled = fillTemplatePlaceholders(template, {
   session_id: 'session-1',
   mode: 'single_request',
   timestamp: '2026-11-13T00:00:00Z',
+  context: null,
 });
 
 let parsed;
@@ -70,6 +77,21 @@ try {
 assert('template parses', parsed != null);
 assert('text escaped quotes', parsed?.text === 'Say "hello"');
 assert('session id', parsed?.session_id === 'session-1');
+assert('context null', parsed?.context === null);
+
+const withCtx = JSON.parse(
+  fillTemplatePlaceholders(template, {
+    text: 'more',
+    session_id: 's2',
+    mode: 'single_request',
+    timestamp: '2026-11-13T00:00:00Z',
+    context: { notification_id: 'notification-002' },
+  }),
+);
+assert(
+  'context object',
+  withCtx.context?.notification_id === 'notification-002',
+);
 
 const body = {
   data: { response: 'Deployed', session_id: 'session-9' },

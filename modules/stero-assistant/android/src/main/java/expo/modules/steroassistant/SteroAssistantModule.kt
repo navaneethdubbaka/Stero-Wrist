@@ -1,6 +1,7 @@
 package expo.modules.steroassistant
 
-import android.app.RoleManager
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
@@ -11,6 +12,9 @@ import expo.modules.kotlin.exception.Exceptions
 class SteroAssistantModule : Module() {
   private val context
     get() = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+
+  private val voiceInteractionComponent: String
+    get() = "${context.packageName}/expo.modules.steroassistant.SteroVoiceInteractionService"
 
   fun emitAssistantActivate(source: String) {
     sendEvent("assistantActivate", mapOf("source" to source))
@@ -35,8 +39,16 @@ class SteroAssistantModule : Module() {
       isDefaultAssistantInternal()
     }
 
+    AsyncFunction("getAssistantStatus") {
+      getAssistantStatusInternal()
+    }
+
     AsyncFunction("openAssistantSettings") {
       openAssistantSettingsInternal()
+    }
+
+    AsyncFunction("applyVoiceInteractionSelection") {
+      applyVoiceInteractionSelectionInternal()
     }
 
     AsyncFunction("startInputRoute") { preferWatch: Boolean ->
@@ -49,6 +61,10 @@ class SteroAssistantModule : Module() {
 
     AsyncFunction("getActiveInputInfo") {
       AudioRouteHelper.getActiveInputInfo(context)
+    }
+
+    AsyncFunction("preferOutputRoute") { preference: String ->
+      AudioRouteHelper.preferOutputRoute(context, preference)
     }
 
     AsyncFunction("consumePendingActivation") {
@@ -64,30 +80,141 @@ class SteroAssistantModule : Module() {
     }
   }
 
+  private fun getAssistantStatusInternal(): Map<String, Any?> {
+    val roleHeld = isRoleAssistantHeld()
+    val voiceService = readSecure("voice_interaction_service")
+    val assistComponent = readSecure("assistant")
+    val ours = voiceInteractionComponent
+    val voiceSelected = !voiceService.isNullOrBlank() &&
+      (voiceService == ours || voiceService.startsWith(context.packageName))
+    val assistSelected = !assistComponent.isNullOrBlank() &&
+      assistComponent.contains(context.packageName)
+    return mapOf(
+      "roleHeld" to roleHeld,
+      "voiceInteractionService" to (voiceService ?: ""),
+      "assistComponent" to (assistComponent ?: ""),
+      "ourComponent" to ours,
+      "isSelected" to (roleHeld || voiceSelected || assistSelected),
+      "voiceSelected" to voiceSelected,
+      "assistSelected" to assistSelected,
+    )
+  }
+
   private fun isDefaultAssistantInternal(): Boolean {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-      val rm = context.getSystemService(RoleManager::class.java) ?: return false
-      if (rm.isRoleAvailable(RoleManager.ROLE_ASSISTANT)) {
-        return rm.isRoleHeld(RoleManager.ROLE_ASSISTANT)
-      }
+    val status = getAssistantStatusInternal()
+    return status["isSelected"] == true
+  }
+
+  private fun isRoleAssistantHeld(): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
+    return try {
+      val rm = context.getSystemService(Context.ROLE_SERVICE) ?: return false
+      val roleAssistant = "android.app.role.ASSISTANT"
+      val isAvailable = rm.javaClass
+        .getMethod("isRoleAvailable", String::class.java)
+        .invoke(rm, roleAssistant) as Boolean
+      if (!isAvailable) return false
+      rm.javaClass
+        .getMethod("isRoleHeld", String::class.java)
+        .invoke(rm, roleAssistant) as Boolean
+    } catch (_: Exception) {
+      false
     }
-    // Pre-Q / unavailable role: cannot verify reliably.
-    return false
+  }
+
+  private fun readSecure(key: String): String? {
+    return try {
+      Settings.Secure.getString(context.contentResolver, key)
+    } catch (_: Exception) {
+      null
+    }
+  }
+
+  /**
+   * Writes Secure settings so OEM / watch “Talk to assistant” actually targets Stero.
+   * Requires WRITE_SECURE_SETTINGS (grant via adb once).
+   */
+  private fun applyVoiceInteractionSelectionInternal(): Map<String, Any> {
+    val vis = voiceInteractionComponent
+    val assist = "${context.packageName}/expo.modules.steroassistant.SteroAssistActivity"
+    return try {
+      val cr = context.contentResolver
+      Settings.Secure.putString(cr, "voice_interaction_service", vis)
+      Settings.Secure.putString(cr, "assistant", assist)
+      mapOf(
+        "ok" to true,
+        "voiceInteractionService" to (Settings.Secure.getString(cr, "voice_interaction_service") ?: ""),
+        "assistant" to (Settings.Secure.getString(cr, "assistant") ?: ""),
+      )
+    } catch (error: SecurityException) {
+      mapOf(
+        "ok" to false,
+        "error" to "WRITE_SECURE_SETTINGS not granted. Run: adb shell pm grant ${context.packageName} android.permission.WRITE_SECURE_SETTINGS",
+        "voiceInteractionService" to vis,
+      )
+    } catch (error: Exception) {
+      mapOf(
+        "ok" to false,
+        "error" to (error.message ?: "Failed to apply selection"),
+        "voiceInteractionService" to vis,
+      )
+    }
   }
 
   private fun openAssistantSettingsInternal() {
     val activity = appContext.currentActivity
     val intents = mutableListOf<Intent>()
 
+    // 1) ROLE_ASSISTANT picker (Pixel / stock)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-      val rm = context.getSystemService(RoleManager::class.java)
-      if (rm != null && rm.isRoleAvailable(RoleManager.ROLE_ASSISTANT)) {
-        intents.add(rm.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT))
+      try {
+        val rm = context.getSystemService(Context.ROLE_SERVICE)
+        if (rm != null) {
+          val roleAssistant = "android.app.role.ASSISTANT"
+          val isAvailable = rm.javaClass
+            .getMethod("isRoleAvailable", String::class.java)
+            .invoke(rm, roleAssistant) as Boolean
+          if (isAvailable) {
+            val intent = rm.javaClass
+              .getMethod("createRequestRoleIntent", String::class.java)
+              .invoke(rm, roleAssistant) as Intent
+            intents.add(intent)
+          }
+        }
+      } catch (_: Exception) {
+        // continue
       }
     }
 
+    // 2) Assist & voice input (shows Assist app — often lists Stero when Digital assistant does not)
     intents.add(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
+
+    // 3) OEM / generic default-apps screens
     intents.add(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+    try {
+      intents.add(
+        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+          data = android.net.Uri.parse("package:${context.packageName}")
+        },
+      )
+    } catch (_: Exception) {
+      // ignore
+    }
+
+    // 4) vivo / iQOO / Oppo style assistant settings (best-effort; may not resolve)
+    for (pkgActivity in listOf(
+      "com.vivo.assistant/.AssistantSettingsActivity",
+      "com.vivo.agent/.ui.MainActivity",
+      "com.iqoo.secure/.MainActivity",
+    )) {
+      try {
+        val cn = ComponentName.unflattenFromString(pkgActivity) ?: continue
+        intents.add(Intent().setComponent(cn))
+      } catch (_: Exception) {
+        // ignore
+      }
+    }
+
     intents.add(Intent(Settings.ACTION_SETTINGS))
 
     for (intent in intents) {

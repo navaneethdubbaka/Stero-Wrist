@@ -6,9 +6,16 @@ plugins {
 group = 'expo.modules.steroassistant'
 version = '0.1.0'
 
+def safeExtGet(prop, fallback) {
+  rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+}
+
 android {
   namespace "expo.modules.steroassistant"
+  compileSdkVersion safeExtGet("compileSdkVersion", 36)
   defaultConfig {
+    minSdkVersion safeExtGet("minSdkVersion", 24)
+    targetSdkVersion safeExtGet("targetSdkVersion", 36)
     versionCode 1
     versionName "0.1.0"
   }

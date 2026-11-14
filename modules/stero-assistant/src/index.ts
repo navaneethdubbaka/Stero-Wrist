@@ -15,12 +15,36 @@ export type {
 
 type EventSub = { remove: () => void };
 
+export type OutputRouteResult = {
+  label: string;
+  kind: string;
+  applied: boolean;
+};
+
+export type AssistantStatus = {
+  roleHeld: boolean;
+  voiceInteractionService: string;
+  assistComponent: string;
+  ourComponent: string;
+  isSelected: boolean;
+  voiceSelected: boolean;
+  assistSelected: boolean;
+};
+
 type NativeSteroAssistant = {
   isDefaultAssistant(): Promise<boolean>;
+  getAssistantStatus(): Promise<AssistantStatus>;
   openAssistantSettings(): Promise<void>;
+  applyVoiceInteractionSelection(): Promise<{
+    ok: boolean;
+    error?: string;
+    voiceInteractionService?: string;
+    assistant?: string;
+  }>;
   startInputRoute(preferWatch: boolean): Promise<ActiveInputInfo>;
   stopInputRoute(): Promise<void>;
   getActiveInputInfo(): Promise<ActiveInputInfo>;
+  preferOutputRoute(preference: string): Promise<OutputRouteResult>;
   consumePendingActivation(): Promise<AssistantActivatePayload | null>;
   startMicForegroundService(): Promise<void>;
   stopMicForegroundService(): Promise<void>;
@@ -49,9 +73,36 @@ export async function isDefaultAssistant(): Promise<boolean> {
   return Native.isDefaultAssistant();
 }
 
+export async function getAssistantStatus(): Promise<AssistantStatus> {
+  if (!Native) {
+    return {
+      roleHeld: false,
+      voiceInteractionService: '',
+      assistComponent: '',
+      ourComponent: '',
+      isSelected: false,
+      voiceSelected: false,
+      assistSelected: false,
+    };
+  }
+  return Native.getAssistantStatus();
+}
+
 export async function openAssistantSettings(): Promise<void> {
   if (!Native) return;
   await Native.openAssistantSettings();
+}
+
+export async function applyVoiceInteractionSelection(): Promise<{
+  ok: boolean;
+  error?: string;
+  voiceInteractionService?: string;
+  assistant?: string;
+}> {
+  if (!Native) {
+    return { ok: false, error: 'Native module unavailable' };
+  }
+  return Native.applyVoiceInteractionSelection();
 }
 
 export async function startInputRoute(
@@ -69,6 +120,15 @@ export async function stopInputRoute(): Promise<void> {
 export async function getActiveInputInfo(): Promise<ActiveInputInfo> {
   if (!Native) return FALLBACK_INPUT;
   return Native.getActiveInputInfo();
+}
+
+export async function preferOutputRoute(
+  preference: string,
+): Promise<OutputRouteResult> {
+  if (!Native) {
+    return { label: 'Phone speaker', kind: 'phone_speaker', applied: false };
+  }
+  return Native.preferOutputRoute(preference);
 }
 
 export async function consumePendingActivation(): Promise<AssistantActivatePayload | null> {

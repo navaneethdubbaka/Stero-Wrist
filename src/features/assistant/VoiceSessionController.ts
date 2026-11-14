@@ -1,10 +1,9 @@
 import { useProfilesStore } from '../profiles/profilesStore';
 import { useSettingsStore } from '../settings/settingsStore';
 import {
-  resolveTtsProvider,
+  synthesizeAndPlay,
   stopActiveTts,
 } from '../tts/resolveTtsProvider';
-import { ttsOptionsFromSettings } from '../tts/TtsProvider';
 import {
   WebhookError,
   userMessageForWebhookError,
@@ -12,6 +11,7 @@ import {
 import { sendTranscript } from '../webhook/HermesWebhookClient';
 import { createSessionId } from '../webhook/sessionId';
 import { preferWatchMic, stopScoAndMicService } from './audioRoute';
+import { applyAudioOutput } from './audioOutput';
 import type { SttProvider } from './stt/SttProvider';
 import { defaultSttProvider } from './stt/ExpoSpeechSttProvider';
 import { useVoiceSessionStore } from './voiceSessionStore';
@@ -19,6 +19,9 @@ import { useVoiceSessionStore } from './voiceSessionStore';
 let timers: ReturnType<typeof setTimeout>[] = [];
 let listening = false;
 let pipelineGeneration = 0;
+/** Conversation turn counter within one activation (same sessionId). */
+let conversationTurns = 0;
+const CONVERSATION_TURN_CAP = 8;
 
 function clearTimers() {
   for (const t of timers) clearTimeout(t);
@@ -36,28 +39,34 @@ function getSetPartial() {
 async function speakReply(
   text: string,
   generation: number,
+  opts: { restoreContinuousMic?: boolean } = {},
 ): Promise<void> {
   const dispatch = getDispatch();
   const settings = useSettingsStore.getState().settings;
-  const resolved = resolveTtsProvider(settings.tts.provider, 'assistant_response');
 
-  // Tear down SCO so TTS stays on the phone speaker.
-  await stopScoAndMicService();
-
-  if (resolved.silent || !resolved.provider) {
-    if (generation === pipelineGeneration) {
-      dispatch({ type: 'SPEAK_DONE' });
-    }
-    return;
+  const output = settings.audio.outputDevice;
+  // Watch speaker needs HFP SCO kept up; other outputs tear SCO down first.
+  if (output !== 'watch_speaker') {
+    await stopScoAndMicService();
   }
+  await applyAudioOutput(output);
 
   try {
-    await resolved.provider.synthesize(
-      text,
-      ttsOptionsFromSettings(settings.tts),
-    );
+    await synthesizeAndPlay(text, 'assistant_response');
   } catch {
     // Keep webhook success visible; finish speaking state without FAIL.
+  }
+
+  if (output === 'watch_speaker' && !opts.restoreContinuousMic) {
+    await stopScoAndMicService();
+  }
+
+  if (opts.restoreContinuousMic) {
+    try {
+      await preferWatchMic(settings.audio.inputDevice);
+    } catch {
+      // Continuous STT may continue on phone mic.
+    }
   }
 
   if (generation === pipelineGeneration) {
@@ -65,11 +74,16 @@ async function speakReply(
   }
 }
 
-async function runWebhookPipeline(transcript: string): Promise<void> {
+async function runWebhookPipeline(
+  transcript: string,
+  opts: { keepListening?: boolean } = {},
+): Promise<void> {
   const dispatch = getDispatch();
   const generation = ++pipelineGeneration;
   clearTimers();
-  await stopActiveTts();
+  if (!opts.keepListening) {
+    await stopActiveTts();
+  }
 
   const profile = useProfilesStore.getState().getActiveProfile();
   const settings = useSettingsStore.getState().settings;
@@ -97,7 +111,30 @@ async function runWebhookPipeline(transcript: string): Promise<void> {
       sessionId: result.sessionId ?? sessionId,
     });
 
-    await speakReply(result.responseText, generation);
+    await speakReply(result.responseText, generation, {
+      restoreContinuousMic: Boolean(opts.keepListening),
+    });
+
+    if (generation !== pipelineGeneration) {
+      return;
+    }
+
+    // Continuous: native STT still running — re-enter LISTENING on the same session.
+    if (opts.keepListening) {
+      const sid =
+        useVoiceSessionStore.getState().snapshot.context.sessionId || sessionId;
+      dispatch({ type: 'ACTIVATE', sessionId: sid });
+      dispatch({ type: 'STT_STARTED' });
+      return;
+    }
+
+    // Conversation: after SPEAK_DONE, listen again with same sessionId.
+    if (settings.assistant.defaultMode === 'conversation') {
+      conversationTurns += 1;
+      if (conversationTurns < CONVERSATION_TURN_CAP) {
+        void continueListening({ stt: defaultSttProvider });
+      }
+    }
   } catch (error) {
     if (generation !== pipelineGeneration) {
       return;
@@ -139,74 +176,14 @@ export type VoiceControllerDeps = {
   trigger?: VoiceActivateTrigger;
 };
 
-export async function activateVoiceSession(
-  deps: VoiceControllerDeps = {},
+async function beginListening(
+  stt: SttProvider,
+  opts: { continuous: boolean; reuseSession: boolean },
 ): Promise<void> {
-  const stt = deps.stt ?? defaultSttProvider;
   const settings = useSettingsStore.getState().settings;
   const dispatch = getDispatch();
   const setPartial = getSetPartial();
   const setMicRoute = useVoiceSessionStore.getState().setMicRoute;
-
-  if (!settings.assistant.enabled) {
-    dispatch({
-      type: 'FAIL',
-      message: 'Assistant is disabled in Settings.',
-    });
-    return;
-  }
-
-  if (settings.assistant.defaultMode === 'notification_only') {
-    dispatch({
-      type: 'FAIL',
-      message: 'Notification Only mode — voice input is off.',
-    });
-    return;
-  }
-
-  if (settings.assistant.defaultMode !== 'single_request') {
-    dispatch({
-      type: 'FAIL',
-      message: 'Only Single Request mode is wired in Phase 2–3.',
-    });
-    return;
-  }
-
-  const current = useVoiceSessionStore.getState().snapshot.state;
-  if (current !== 'IDLE' && current !== 'ERROR') {
-    // Re-activate from watch/assistant: cancel then restart.
-    if (deps.trigger === 'assistant' || deps.trigger === 'deeplink') {
-      await cancelVoiceSession(deps);
-    } else {
-      return;
-    }
-  }
-
-  clearTimers();
-  pipelineGeneration += 1;
-  await stopActiveTts();
-  await stopScoAndMicService();
-  const sessionId = createSessionId();
-  dispatch({ type: 'ACTIVATE', sessionId });
-  setMicRoute({ label: null, banner: null });
-
-  const perm = await stt.requestPermissions();
-  if (!perm.granted) {
-    dispatch({
-      type: 'FAIL',
-      message: perm.message ?? 'Microphone permission required.',
-    });
-    return;
-  }
-
-  if (!stt.isAvailable()) {
-    dispatch({
-      type: 'FAIL',
-      message:
-        'Speech recognition is unavailable on this device. Use a dev client build (not Expo Go).',
-    });
-    return;
-  }
 
   const route = await preferWatchMic(settings.audio.inputDevice);
   setMicRoute({
@@ -223,6 +200,7 @@ export async function activateVoiceSession(
       {
         language: settings.assistant.language,
         silenceThresholdMs: settings.assistant.silenceThresholdMs,
+        continuous: opts.continuous,
       },
       {
         onStarted: () => {
@@ -232,8 +210,20 @@ export async function activateVoiceSession(
           setPartial(text);
         },
         onFinal: (text) => {
-          listening = false;
           const trimmed = text.trim();
+          if (opts.continuous) {
+            if (!trimmed) return;
+            const state = useVoiceSessionStore.getState().snapshot.state;
+            // Drop overlapping segments while a previous turn is in flight.
+            if (state !== 'LISTENING') return;
+            dispatch({ type: 'TRANSCRIPT_FINAL', transcript: trimmed });
+            if (useVoiceSessionStore.getState().snapshot.state === 'SENDING') {
+              void runWebhookPipeline(trimmed, { keepListening: true });
+            }
+            return;
+          }
+
+          listening = false;
           if (!trimmed) {
             void stopScoAndMicService();
             dispatch({ type: 'TRANSCRIPT_EMPTY' });
@@ -246,6 +236,10 @@ export async function activateVoiceSession(
           }
         },
         onEnd: () => {
+          if (opts.continuous) {
+            // Continuous keeps running until Cancel; ignore soft ends.
+            return;
+          }
           if (!listening) return;
           listening = false;
           const partial = useVoiceSessionStore.getState().partialTranscript;
@@ -267,6 +261,9 @@ export async function activateVoiceSession(
           }
         },
         onError: (message) => {
+          if (opts.continuous && softSttError(message)) {
+            return;
+          }
           listening = false;
           if (softSttError(message)) {
             const partial = useVoiceSessionStore.getState().partialTranscript;
@@ -289,14 +286,120 @@ export async function activateVoiceSession(
   } catch (error) {
     listening = false;
     await stopScoAndMicService();
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'Failed to start speech recognition.';
+    dispatch({
+      type: 'FAIL',
+      message: opts.continuous
+        ? `${message} Try Single Request mode.`
+        : message,
+    });
+  }
+  void opts.reuseSession;
+}
+
+/** Conversation follow-up listen — same sessionId, new LISTENING. */
+async function continueListening(
+  deps: VoiceControllerDeps = {},
+): Promise<void> {
+  const stt = deps.stt ?? defaultSttProvider;
+  const settings = useSettingsStore.getState().settings;
+  const dispatch = getDispatch();
+  if (settings.assistant.defaultMode !== 'conversation') return;
+
+  const state = useVoiceSessionStore.getState().snapshot.state;
+  // SPEAK_DONE lands IDLE; only continue from idle success path.
+  if (state !== 'IDLE') return;
+
+  const sessionId =
+    useVoiceSessionStore.getState().snapshot.context.sessionId ||
+    createSessionId();
+
+  clearTimers();
+  await stopActiveTts();
+  dispatch({ type: 'ACTIVATE', sessionId });
+
+  const perm = await stt.requestPermissions();
+  if (!perm.granted) {
+    dispatch({
+      type: 'FAIL',
+      message: perm.message ?? 'Microphone permission required.',
+    });
+    return;
+  }
+
+  await beginListening(stt, { continuous: false, reuseSession: true });
+}
+
+export async function activateVoiceSession(
+  deps: VoiceControllerDeps = {},
+): Promise<void> {
+  const stt = deps.stt ?? defaultSttProvider;
+  const settings = useSettingsStore.getState().settings;
+  const dispatch = getDispatch();
+
+  if (!settings.assistant.enabled) {
+    dispatch({
+      type: 'FAIL',
+      message: 'Assistant is disabled in Settings.',
+    });
+    return;
+  }
+
+  if (settings.assistant.defaultMode === 'notification_only') {
+    dispatch({
+      type: 'FAIL',
+      message: 'Notification Only mode — voice input is off.',
+    });
+    return;
+  }
+
+  const mode = settings.assistant.defaultMode;
+  const continuous = mode === 'continuous';
+
+  const current = useVoiceSessionStore.getState().snapshot.state;
+  if (current !== 'IDLE' && current !== 'ERROR') {
+    // Re-activate from watch/assistant: cancel then restart.
+    if (deps.trigger === 'assistant' || deps.trigger === 'deeplink') {
+      await cancelVoiceSession(deps);
+    } else {
+      return;
+    }
+  }
+
+  clearTimers();
+  pipelineGeneration += 1;
+  conversationTurns = 0;
+  await stopActiveTts();
+  await stopScoAndMicService();
+  const sessionId = createSessionId();
+  dispatch({ type: 'ACTIVATE', sessionId });
+  useVoiceSessionStore.getState().setMicRoute({ label: null, banner: null });
+
+  const perm = await stt.requestPermissions();
+  if (!perm.granted) {
+    dispatch({
+      type: 'FAIL',
+      message: perm.message ?? 'Microphone permission required.',
+    });
+    return;
+  }
+
+  if (!stt.isAvailable()) {
     dispatch({
       type: 'FAIL',
       message:
-        error instanceof Error
-          ? error.message
-          : 'Failed to start speech recognition.',
+        'Speech recognition is unavailable on this device. Use a dev client build (not Expo Go).',
     });
+    return;
   }
+
+  await beginListening(stt, {
+    continuous,
+    reuseSession: false,
+  });
 }
 
 export async function retryLastTranscript(): Promise<void> {
@@ -324,6 +427,7 @@ export async function cancelVoiceSession(
   clearTimers();
   pipelineGeneration += 1;
   listening = false;
+  conversationTurns = CONVERSATION_TURN_CAP;
   await stopActiveTts();
   await stopScoAndMicService();
   await stt.abort();

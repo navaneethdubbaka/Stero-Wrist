@@ -16,6 +16,7 @@ export type SendTranscriptMeta = {
   sessionId: string;
   mode: string;
   allowHttp: boolean;
+  context?: Record<string, unknown> | null;
 };
 
 export type SendTranscriptResult = {
@@ -64,12 +65,24 @@ async function sendOnce(
     ? await secretGet(webhook.tokenSecretId)
     : null;
 
-  const body = buildWebhookBody(webhook, {
+  let body = buildWebhookBody(webhook, {
     text,
     session_id: meta.sessionId,
     mode: meta.mode,
     timestamp: new Date().toISOString(),
+    context: meta.context ?? null,
   });
+
+  // Ensure context is present even for older templates without {{context}}.
+  if (
+    meta.context &&
+    body &&
+    typeof body === 'object' &&
+    !Array.isArray(body) &&
+    !('context' in (body as Record<string, unknown>))
+  ) {
+    body = { ...(body as Record<string, unknown>), context: meta.context };
+  }
 
   const headers = buildWebhookHeaders(webhook, token);
 

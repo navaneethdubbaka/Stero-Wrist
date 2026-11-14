@@ -4,34 +4,47 @@ import { Screen } from '../../shared/ui/Screen';
 import { FormField } from '../../shared/ui/FormField';
 import { colors, space, touch, type as typeScale } from '../../shared/theme/tokens';
 import { useSettingsStore } from './settingsStore';
-import type { TtsProviderId } from '../../shared/types/settings';
-import { resolveTtsProvider } from '../tts/resolveTtsProvider';
-import { ttsOptionsFromSettings } from '../tts/TtsProvider';
+import type { TtsEventOverrideKey, TtsProviderId } from '../../shared/types/settings';
+import {
+  resolveTtsProvider,
+  synthesizeAndPlay,
+} from '../tts/resolveTtsProvider';
+import { applyAudioOutput } from '../assistant/audioOutput';
+import { stopScoAndMicService } from '../assistant/audioRoute';
 
 const PROVIDERS: { id: TtsProviderId; label: string; hint: string }[] = [
   { id: 'system', label: 'System TTS', hint: 'Built-in — live on device' },
   {
     id: 'openai',
     label: 'OpenAI',
-    hint: 'Cloud — Phase 9 (falls back to system now)',
+    hint: 'Via TTS gateway (provider id: openai)',
   },
   {
     id: 'fish_audio',
     label: 'Fish Audio',
-    hint: 'Cloud — Phase 9 (falls back to system now)',
+    hint: 'Via TTS gateway (provider id: fish_audio)',
   },
   {
     id: 'custom_http',
     label: 'Custom HTTP',
-    hint: 'Phase 9 (falls back to system now)',
+    hint: 'Via TTS gateway (provider id: custom_http)',
   },
 ];
 
+const EVENT_KEYS: { id: TtsEventOverrideKey; label: string }[] = [
+  { id: 'assistant_response', label: 'Assistant reply' },
+  { id: 'notification_critical', label: 'Critical notify' },
+  { id: 'notification_high', label: 'High notify' },
+  { id: 'notification_normal', label: 'Normal notify' },
+  { id: 'notification_low', label: 'Low notify' },
+];
+
 const TEST_SAMPLE =
-  'Stero Wrist is ready. Hermes replies will be spoken through the phone speaker.';
+  'Stero Wrist is ready. Hermes replies will be spoken through your selected output.';
 
 export function TtsSettingsScreen() {
   const tts = useSettingsStore((s) => s.settings.tts);
+  const audio = useSettingsStore((s) => s.settings.audio);
   const setTts = useSettingsStore((s) => s.setTts);
   const saveTtsApiKey = useSettingsStore((s) => s.saveTtsApiKey);
   const [apiKeyDraft, setApiKeyDraft] = useState('');
@@ -39,6 +52,7 @@ export function TtsSettingsScreen() {
   const [testing, setTesting] = useState(false);
 
   const cloud = tts.provider !== 'system';
+  const hasGateway = Boolean(tts.gatewayUrl.trim());
 
   const onSaveKey = async () => {
     try {
@@ -54,18 +68,17 @@ export function TtsSettingsScreen() {
     setTesting(true);
     setMessage(null);
     try {
+      await stopScoAndMicService();
+      await applyAudioOutput(audio.outputDevice);
       const resolved = resolveTtsProvider(tts.provider, 'assistant_response');
-      if (!resolved.provider) {
+      if (resolved.silent) {
         setMessage('TTS is silent for this policy.');
         return;
       }
-      await resolved.provider.synthesize(
-        TEST_SAMPLE,
-        ttsOptionsFromSettings(tts),
-      );
+      const result = await synthesizeAndPlay(TEST_SAMPLE, 'assistant_response');
       setMessage(
-        resolved.usedSystemFallback
-          ? 'Played via system TTS (cloud providers arrive in Phase 9).'
+        resolved.usedSystemFallback || result.usedSystemFallback
+          ? 'Played via system TTS (set a gateway URL for cloud voices).'
           : 'Test voice finished.',
       );
     } catch {
@@ -75,13 +88,25 @@ export function TtsSettingsScreen() {
     }
   };
 
+  const setEventProvider = (
+    event: TtsEventOverrideKey,
+    value: TtsProviderId | 'silent' | 'inherit',
+  ) => {
+    const next = { ...(tts.eventProviders ?? {}) };
+    if (value === 'inherit') {
+      delete next[event];
+    } else {
+      next[event] = value;
+    }
+    setTts({ eventProviders: next });
+  };
+
   return (
     <Screen>
       <Text style={styles.title}>Text to speech</Text>
       <Text style={styles.hint}>
-        System TTS speaks Hermes replies on the phone speaker. Mic input and
-        speaker output are independent. Cloud providers fall back to system until
-        Phase 9.
+        Prefer a TTS gateway so OpenAI/Fish keys never ship in the app. Without
+        a gateway URL, cloud providers fall back to system TTS.
       </Text>
 
       <View style={styles.modes}>
@@ -97,18 +122,29 @@ export function TtsSettingsScreen() {
         ))}
       </View>
 
-      {cloud ? (
+      {cloud && !hasGateway ? (
         <Text style={styles.fallbackNote}>
-          Selected cloud provider will use system TTS until Phase 9.
+          No gateway URL — cloud selection will use system TTS. On-device API
+          keys are for gateway auth / local testing only; avoid shipping secrets
+          in production builds.
         </Text>
       ) : null}
+
+      <FormField
+        label="TTS gateway URL"
+        value={tts.gatewayUrl}
+        onChangeText={(gatewayUrl) => setTts({ gatewayUrl })}
+        placeholder="https://your-gateway.example/tts"
+        keyboardType="url"
+        hint="POST { provider, text, voice, model, language, speed, voice_reference_id }"
+      />
 
       <FormField
         label="Voice"
         value={tts.voice}
         onChangeText={(voice) => setTts({ voice })}
         placeholder="default"
-        hint="Use default, or a system voice identifier when known"
+        hint="Use default, or a system / gateway voice identifier"
       />
       <FormField
         label="Language"
@@ -150,14 +186,14 @@ export function TtsSettingsScreen() {
             onChangeText={(voiceReferenceId) => setTts({ voiceReferenceId })}
           />
           <FormField
-            label="API key"
+            label="Gateway / API key"
             value={apiKeyDraft}
             onChangeText={setApiKeyDraft}
             secureTextEntry
             placeholder={
               tts.apiKeySecretId
                 ? 'Key saved — enter new value to replace'
-                : 'Stored in secure storage'
+                : 'Optional — stored in SecureStore'
             }
           />
           <Pressable style={styles.button} onPress={() => void onSaveKey()}>
@@ -167,6 +203,34 @@ export function TtsSettingsScreen() {
           </Pressable>
         </>
       ) : null}
+
+      <Text style={styles.section}>Per-event overrides</Text>
+      <Text style={styles.hint}>
+        Leave as Inherit to use the provider above. Silent skips speech for that
+        event (notifications still respect priority speak rules).
+      </Text>
+      {EVENT_KEYS.map((event) => {
+        const current = tts.eventProviders?.[event.id];
+        const selected = current ?? 'inherit';
+        return (
+          <View key={event.id} style={styles.eventBlock}>
+            <Text style={styles.eventLabel}>{event.label}</Text>
+            <View style={styles.chips}>
+              {(
+                ['inherit', 'system', 'openai', 'fish_audio', 'custom_http', 'silent'] as const
+              ).map((id) => (
+                <Pressable
+                  key={id}
+                  style={[styles.chip, selected === id && styles.chipOn]}
+                  onPress={() => setEventProvider(event.id, id)}
+                >
+                  <Text style={styles.chipText}>{id}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        );
+      })}
 
       {message ? <Text style={styles.message}>{message}</Text> : null}
     </Screen>
@@ -181,6 +245,11 @@ const styles = StyleSheet.create({
   hint: {
     ...typeScale.caption,
     color: colors.mist,
+  },
+  section: {
+    ...typeScale.label,
+    color: colors.mist,
+    marginTop: space.md,
   },
   fallbackNote: {
     ...typeScale.caption,
@@ -229,5 +298,34 @@ const styles = StyleSheet.create({
   message: {
     ...typeScale.caption,
     color: colors.lanternReady,
+  },
+  eventBlock: {
+    gap: space.sm,
+  },
+  eventLabel: {
+    ...typeScale.label,
+    color: colors.foam,
+  },
+  chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: space.sm,
+  },
+  chip: {
+    minHeight: 36,
+    paddingHorizontal: space.md,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.outline,
+    backgroundColor: colors.surface,
+    justifyContent: 'center',
+  },
+  chipOn: {
+    borderColor: colors.lanternReady,
+    backgroundColor: colors.brandBand,
+  },
+  chipText: {
+    ...typeScale.caption,
+    color: colors.foam,
   },
 });

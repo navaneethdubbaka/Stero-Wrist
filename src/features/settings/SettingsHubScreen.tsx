@@ -54,8 +54,13 @@ export function SettingsHubScreen({ navigation }: Props) {
           onPress={() => navigation.navigate('TtsSettings')}
         />
         <ListRow
+          title="Notification inbox"
+          subtitle="History, filters, Ask Hermes"
+          onPress={() => navigation.navigate('Inbox')}
+        />
+        <ListRow
           title="Notifications"
-          subtitle="Stub — FCM in Phase 6"
+          subtitle="FCM device token + Hermes pushes"
           onPress={() => navigation.navigate('NotificationSettings')}
         />
         <ListRow

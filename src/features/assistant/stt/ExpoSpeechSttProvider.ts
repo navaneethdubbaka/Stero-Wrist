@@ -73,14 +73,21 @@ export class ExpoSpeechSttProvider implements SttProvider {
       ),
     );
 
+    const continuous = Boolean(options.continuous);
+
     this.subs.push(
       ExpoSpeechRecognitionModule.addListener('end', () => {
-        if (!this.finalized) {
-          callbacks.onFinal(this.latestTranscript);
-          this.finalized = true;
+        if (!continuous) {
+          if (!this.finalized) {
+            callbacks.onFinal(this.latestTranscript);
+            this.finalized = true;
+          }
+          callbacks.onEnd();
+          this.clearSubs();
+          return;
         }
+        // Continuous: platform may restart; only surface end if we stopped.
         callbacks.onEnd();
-        this.clearSubs();
       }),
     );
 
@@ -91,24 +98,36 @@ export class ExpoSpeechSttProvider implements SttProvider {
           const message = event.message || event.error || 'Speech recognition failed.';
           // User-aborted / no-speech often surfaces as error — treat soft cases upstream.
           callbacks.onError(String(message));
-          this.clearSubs();
+          if (!continuous) {
+            this.clearSubs();
+          }
         },
       ),
     );
 
-    ExpoSpeechRecognitionModule.start({
-      lang: options.language || 'en-US',
-      interimResults: true,
-      continuous: false,
-      androidIntentOptions: {
-        EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS:
-          options.silenceThresholdMs,
-        EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS: Math.max(
-          400,
-          Math.floor(options.silenceThresholdMs * 0.6),
-        ),
-      },
-    });
+    try {
+      ExpoSpeechRecognitionModule.start({
+        lang: options.language || 'en-US',
+        interimResults: true,
+        continuous,
+        androidIntentOptions: {
+          EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS:
+            options.silenceThresholdMs,
+          EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS: Math.max(
+            400,
+            Math.floor(options.silenceThresholdMs * 0.6),
+          ),
+        },
+      });
+    } catch (error) {
+      this.clearSubs();
+      if (continuous) {
+        throw new Error(
+          'Continuous speech recognition is unavailable on this device. Use Single Request mode.',
+        );
+      }
+      throw error;
+    }
   }
 
   async stop(): Promise<void> {

@@ -9,6 +9,8 @@ import { TtsSettingsScreen } from '../features/settings/TtsSettingsScreen';
 import { NotificationSettingsScreen } from '../features/settings/NotificationSettingsScreen';
 import { AudioSettingsScreen } from '../features/settings/AudioSettingsScreen';
 import { AssistantRoleScreen } from '../features/settings/AssistantRoleScreen';
+import { InboxScreen } from '../features/notifications/InboxScreen';
+import { InboxDetailScreen } from '../features/notifications/InboxDetailScreen';
 import { colors } from '../shared/theme/tokens';
 
 export type RootStackParamList = {
@@ -21,6 +23,8 @@ export type RootStackParamList = {
   TtsSettings: undefined;
   NotificationSettings: undefined;
   AudioSettings: undefined;
+  Inbox: undefined;
+  InboxDetail: { notificationId: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -84,6 +88,16 @@ export function RootNavigator() {
           name="NotificationSettings"
           component={NotificationSettingsScreen}
           options={{ title: 'Notifications' }}
+        />
+        <Stack.Screen
+          name="Inbox"
+          component={InboxScreen}
+          options={{ title: 'Inbox' }}
+        />
+        <Stack.Screen
+          name="InboxDetail"
+          component={InboxDetailScreen}
+          options={{ title: 'Notification' }}
         />
         <Stack.Screen
           name="AudioSettings"

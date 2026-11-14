@@ -2,8 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Screen } from '../../shared/ui/Screen';
 import { colors, space, touch, type as typeScale } from '../../shared/theme/tokens';
-import type { AudioInputPreference } from '../../shared/types/settings';
-import { readActiveInputInfo } from '../assistant/audioRoute';
+import type {
+  AudioInputPreference,
+  AudioOutputPreference,
+} from '../../shared/types/settings';
+import { preferWatchMic, readActiveInputInfo } from '../assistant/audioRoute';
 import { formatMicSourceLabel } from '../assistant/audioRoutePolicy';
 import { useSettingsStore } from './settingsStore';
 
@@ -26,16 +29,54 @@ const INPUT_OPTIONS: { id: AudioInputPreference; label: string; hint: string }[]
     },
   ];
 
+const OUTPUT_OPTIONS: {
+  id: AudioOutputPreference;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    id: 'phone_speaker',
+    label: 'Phone speaker',
+    hint: 'Default — speak on the handset',
+  },
+  {
+    id: 'watch_speaker',
+    label: 'Watch speaker',
+    hint: 'Keep HFP SCO up so replies play on the watch (if it supports HFP audio)',
+  },
+  {
+    id: 'earbuds',
+    label: 'Earbuds / wired',
+    hint: 'Prefer wired or USB headset when connected',
+  },
+  {
+    id: 'bluetooth',
+    label: 'Bluetooth (A2DP)',
+    hint: 'Media Bluetooth — SCO is torn down first',
+  },
+];
+
 export function AudioSettingsScreen() {
   const audio = useSettingsStore((s) => s.settings.audio);
   const setAudio = useSettingsStore((s) => s.setAudio);
   const [probeLabel, setProbeLabel] = useState('Probing…');
 
   const refreshProbe = useCallback(() => {
-    void readActiveInputInfo().then((info) => {
-      setProbeLabel(formatMicSourceLabel(info));
-    });
-  }, []);
+    void (async () => {
+      if (audio.inputDevice === 'phone') {
+        const info = await readActiveInputInfo();
+        setProbeLabel(formatMicSourceLabel(info));
+        return;
+      }
+      const route = await preferWatchMic(audio.inputDevice);
+      const label = formatMicSourceLabel(route.info);
+      setProbeLabel(
+        route.usingPhoneFallback && route.banner
+          ? `${label} — ${route.banner}`
+          : label,
+      );
+    })();
+  }, [audio.inputDevice]);
 
   useEffect(() => {
     refreshProbe();
@@ -45,8 +86,10 @@ export function AudioSettingsScreen() {
     <Screen>
       <Text style={styles.title}>Audio</Text>
       <Text style={styles.hint}>
-        Input and output stay independent. Replies always play on the phone
-        speaker in Phase 5.
+        For a watch with mic + speaker, use Input: Auto or Watch/HFP, and Output:
+        Watch speaker. That keeps the Bluetooth call link (HFP) up so you talk
+        and hear through the watch. Pair the watch in the phone Bluetooth
+        settings first.
       </Text>
 
       <Text style={styles.section}>Input preference</Text>
@@ -72,14 +115,22 @@ export function AudioSettingsScreen() {
         <Text style={styles.refreshText}>Refresh probe</Text>
       </Pressable>
 
-      <Text style={styles.section}>Output</Text>
-      <View style={styles.banner}>
-        <Text style={styles.bannerTitle}>Phone speaker</Text>
-        <Text style={styles.bannerBody}>
-          Watch / earbud output routing is deferred to Phase 9. SCO is torn down
-          before TTS so replies stay on the phone.
-        </Text>
-      </View>
+      <Text style={styles.section}>Output preference</Text>
+      {OUTPUT_OPTIONS.map((opt) => {
+        const selected = audio.outputDevice === opt.id;
+        return (
+          <Pressable
+            key={opt.id}
+            style={[styles.option, selected && styles.optionSelected]}
+            onPress={() => setAudio({ outputDevice: opt.id })}
+            accessibilityRole="button"
+            accessibilityState={{ selected }}
+          >
+            <Text style={styles.optionLabel}>{opt.label}</Text>
+            <Text style={styles.optionHint}>{opt.hint}</Text>
+          </Pressable>
+        );
+      })}
 
       {Platform.OS === 'ios' ? (
         <View style={styles.banner}>
@@ -87,6 +138,7 @@ export function AudioSettingsScreen() {
           <Text style={styles.bannerBody}>
             Watch mic and default-assistant activation are Android-first. Use a
             Shortcut that opens stero-wrist://activate for phone-mic voice.
+            Output routing follows the system audio session after SCO stop.
           </Text>
         </View>
       ) : null}
@@ -152,6 +204,7 @@ const styles = StyleSheet.create({
     borderColor: colors.outline,
     padding: 16,
     gap: 6,
+    marginTop: space.md,
   },
   bannerTitle: {
     ...typeScale.label,
