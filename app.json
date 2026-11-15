@@ -45,7 +45,11 @@
         {
           "microphonePermission": "Allow Stero Wrist to use the microphone for assistant requests.",
           "speechRecognitionPermission": "Allow Stero Wrist to turn speech into text for Hermes.",
-          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox",
+            "com.google.android.tts",
+            "com.google.android.as"
+          ]
         }
       ],
       "./plugins/withSteroAssistant.js"

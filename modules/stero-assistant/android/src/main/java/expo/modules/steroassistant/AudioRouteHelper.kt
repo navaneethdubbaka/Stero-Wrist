@@ -16,6 +16,9 @@ object AudioRouteHelper {
   @Volatile
   private var warming = false
 
+  @Volatile
+  private var hangupBusy = false
+
   /**
    * Kick Telecom call + wait for HFP SCO (before JS boots).
    * Safe to call repeatedly; no-ops if already warming or SCO is up.
@@ -29,6 +32,7 @@ object AudioRouteHelper {
       return
     }
     warming = true
+    hangupBusy = false
     Thread({
       try {
         SteroCallSession.startAnsweredCall(app)
@@ -74,6 +78,7 @@ object AudioRouteHelper {
   }
 
   fun startInputRoute(context: Context, preferWatch: Boolean): Map<String, Any> {
+    hangupBusy = false
     val am = audioManager(context)
     if (!preferWatch) {
       stopInputRoute(context)
@@ -84,6 +89,9 @@ object AudioRouteHelper {
 
   fun stopInputRoute(context: Context) {
     val am = audioManager(context)
+    val alreadyDown = hangupBusy && !SteroCallSession.isActive() && !am.isBluetoothScoOn
+    if (alreadyDown) return
+    hangupBusy = true
     try {
       // Disconnect Telecom first so the watch drops native in-call UI.
       SteroCallSession.endAnsweredCall()
@@ -131,17 +139,18 @@ object AudioRouteHelper {
    * Hold Telecom-answered HFP SCO for the whole listen window (no BVRA).
    */
   fun beginWatchCapture(context: Context): Map<String, Any> {
+    hangupBusy = false
     SteroCallSession.startAnsweredCall(context)
     if (!SteroCallSession.awaitActive(4500)) {
       SteroCallSession.placeOutgoingFallback(context)
       SteroCallSession.awaitActive(3000)
     }
-    val result = startInputRoute(context, preferWatch = true)
-    // Android 13+: SpeechRecognizer persist needs the AudioRecord. Below 13,
-    // keep our recorder so the mic indicator stays on.
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-      SteroCallMic.stop()
+    val result = if (SteroCallSession.isActive()) {
+      startScoRoute(context, audioManager(context)) ?: getActiveInputInfo(context)
+    } else {
+      startInputRoute(context, preferWatch = true)
     }
+    // Keep AudioRecord for the whole call — hang-up transcribes the WAV.
     val am = audioManager(context)
     val comm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
       am.communicationDevice?.let { deviceLabel(it, it.type.toString()) } ?: "none"

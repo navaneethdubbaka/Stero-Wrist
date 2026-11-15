@@ -25,19 +25,23 @@ object ListenCueHelper {
     val am = app.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
     try {
-      if (!am.isBluetoothScoOn) {
-        AudioRouteHelper.startInputRoute(app, preferWatch = true)
-      }
-      am.mode = AudioManager.MODE_IN_COMMUNICATION
-      am.isSpeakerphoneOn = false
-      HeadsetVrWatcher.markOurSco(true)
-      if (!am.isBluetoothScoOn) {
-        am.startBluetoothSco()
-        am.isBluetoothScoOn = true
-        try {
-          Thread.sleep(300)
-        } catch (_: InterruptedException) {
-          // ignore
+      if (SteroCallSession.isActive()) {
+        // Telecom already owns HFP. Changing mode/SCO drops the watch mic.
+      } else {
+        if (!am.isBluetoothScoOn) {
+          AudioRouteHelper.startInputRoute(app, preferWatch = true)
+        }
+        am.mode = AudioManager.MODE_IN_COMMUNICATION
+        am.isSpeakerphoneOn = false
+        HeadsetVrWatcher.markOurSco(true)
+        if (!am.isBluetoothScoOn) {
+          am.startBluetoothSco()
+          am.isBluetoothScoOn = true
+          try {
+            Thread.sleep(300)
+          } catch (_: InterruptedException) {
+            // ignore
+          }
         }
       }
     } catch (e: Exception) {

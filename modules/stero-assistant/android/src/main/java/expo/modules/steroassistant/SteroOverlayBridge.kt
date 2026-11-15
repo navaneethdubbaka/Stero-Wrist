@@ -199,8 +199,7 @@ object SteroOverlayBridge {
     HeadsetVrWatcher.armCancelQuiet()
     hangupWatchCall()
     AssistantActivationBridge.requestCancel()
-    // Keep Headless alive so JS can flush the transcript and send to Hermes.
-    mainHandler.post { finishAssistUiLocked() }
+    // Keep Assist + Headless up while JS transcribes the WAV and hits Hermes.
   }
 
   private fun finishAssistUiLocked() {

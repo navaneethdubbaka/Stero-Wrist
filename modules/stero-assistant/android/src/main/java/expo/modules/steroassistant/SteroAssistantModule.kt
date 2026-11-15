@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.exception.Exceptions
@@ -29,9 +30,14 @@ class SteroAssistantModule : Module() {
 
     Events("assistantActivate", "assistantOverlayCancel")
 
+    OnStartObserving {
+      AssistantActivationBridge.flushPendingToJs()
+    }
+
     OnCreate {
       AssistantActivationBridge.module = this@SteroAssistantModule
       SteroOverlayBridge.module = this@SteroAssistantModule
+      Log.i("SteroAssist", "JS module live")
       val appCtx = appContext.reactContext?.applicationContext
       if (appCtx != null) {
         try {
@@ -136,6 +142,10 @@ class SteroAssistantModule : Module() {
 
     AsyncFunction("isWatchSessionLive") {
       SteroCallSession.isActive() || SteroOverlayBridge.isUiShowing()
+    }
+
+    AsyncFunction("takeWatchRecording") {
+      SteroCallMic.takeLastWav()
     }
   }
 

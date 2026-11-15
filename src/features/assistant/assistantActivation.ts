@@ -11,6 +11,7 @@ import {
 import {
   activateVoiceSession,
   commitOnHangup,
+  isHangupCommitInFlight,
 } from './VoiceSessionController';
 import {
   isOverlayLaunchIntent,
@@ -34,6 +35,10 @@ let lastActivateAt = 0;
 const ACTIVATE_DEDUPE_MS = 1200;
 
 function tryActivate(trigger: 'assistant' | 'deeplink'): void {
+  if (isHangupCommitInFlight()) {
+    console.log('[Stero] activate skipped, hangup transcribe in flight');
+    return;
+  }
   const now = Date.now();
   if (now - lastActivateAt < ACTIVATE_DEDUPE_MS) return;
   lastActivateAt = now;
@@ -64,6 +69,7 @@ export function startAssistantActivationListeners(): () => void {
     return () => undefined;
   }
   subscribed = true;
+  console.log('[Stero] activation listeners up');
 
   const subs: Array<{ remove: () => void }> = [];
 
@@ -77,6 +83,7 @@ export function startAssistantActivationListeners(): () => void {
 
     subs.push(
       addAssistantOverlayCancelListener(() => {
+        void consumePendingOverlayCancel();
         void commitOnHangup({ dismissOverlayUi: true });
       }),
     );
@@ -85,6 +92,9 @@ export function startAssistantActivationListeners(): () => void {
       const overlay = await isOverlayHost().catch(() => false);
       const live = await isWatchSessionLive().catch(() => false);
       const pending = await consumePendingActivation();
+      console.log(
+        `[Stero] boot pending=${Boolean(pending)} overlay=${overlay} live=${live}`,
+      );
       if (pending || overlay || live) {
         void markOverlayIfHeadless();
         tryActivate('assistant');

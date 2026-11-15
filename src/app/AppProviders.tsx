@@ -76,12 +76,10 @@ export function AppProviders() {
   }, [hydrateProfiles, hydrateSettings]);
 
   useEffect(() => {
-    if (!booted || !profilesReady || !settingsReady || !overlayReady) return;
-    const stopAssistant = startAssistantActivationListeners();
-    return () => {
-      stopAssistant();
-    };
-  }, [booted, profilesReady, settingsReady, overlayReady]);
+    // Do not wait for prefs/overlay — Headless Talk dies if hydrate hangs.
+    startAssistantActivationListeners();
+    return () => undefined;
+  }, []);
 
   useEffect(() => {
     if (!booted || !profilesReady || !settingsReady || !overlayReady) return;

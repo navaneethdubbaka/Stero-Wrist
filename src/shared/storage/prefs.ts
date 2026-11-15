@@ -9,7 +9,12 @@ export async function hydratePrefs(): Promise<void> {
   if (hydrated) return;
   if (hydratePromise) return hydratePromise;
   hydratePromise = (async () => {
-    const keys = await AsyncStorage.getAllKeys();
+    const keys = await Promise.race([
+      AsyncStorage.getAllKeys(),
+      new Promise<string[]>((_, reject) => {
+        setTimeout(() => reject(new Error('prefs timeout')), 2000);
+      }),
+    ]).catch(() => [] as string[]);
     const steroKeys = keys.filter((k) => k.startsWith('stero.'));
     if (steroKeys.length > 0) {
       const pairs = await AsyncStorage.multiGet(steroKeys);

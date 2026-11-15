@@ -6,7 +6,7 @@ import type {
   AudioInputPreference,
   AudioOutputPreference,
 } from '../../shared/types/settings';
-import { preferWatchMic, readActiveInputInfo } from '../assistant/audioRoute';
+import { readActiveInputInfo } from '../assistant/audioRoute';
 import { formatMicSourceLabel } from '../assistant/audioRoutePolicy';
 import { useSettingsStore } from './settingsStore';
 
@@ -63,18 +63,8 @@ export function AudioSettingsScreen() {
 
   const refreshProbe = useCallback(() => {
     void (async () => {
-      if (audio.inputDevice === 'phone') {
-        const info = await readActiveInputInfo();
-        setProbeLabel(formatMicSourceLabel(info));
-        return;
-      }
-      const route = await preferWatchMic(audio.inputDevice);
-      const label = formatMicSourceLabel(route.info);
-      setProbeLabel(
-        route.usingPhoneFallback && route.banner
-          ? `${label} — ${route.banner}`
-          : label,
-      );
+      const info = await readActiveInputInfo();
+      setProbeLabel(formatMicSourceLabel(info));
     })();
   }, [audio.inputDevice]);
 

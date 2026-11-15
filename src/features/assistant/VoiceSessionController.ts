@@ -15,8 +15,10 @@ import {
   endWatchCapture,
   playListenCue,
   playTranscriptCue,
+  takeWatchRecording,
 } from '../../../modules/stero-assistant/src';
-import { preferWatchMic, stopScoAndMicService } from './audioRoute';
+import { transcribeWatchRecording } from './stt/transcribeWatchRecording';
+import { preferWatchMic, stopMicIndicator, stopScoAndMicService } from './audioRoute';
 import { applyAudioOutput } from './audioOutput';
 import { dismissOverlay, setOverlayPhase } from './overlayBridge';
 import { isOverlayModeSync } from './overlayMode';
@@ -27,6 +29,10 @@ import { useVoiceSessionStore } from './voiceSessionStore';
 let timers: ReturnType<typeof setTimeout>[] = [];
 let listening = false;
 let hangupCommitInFlight = false;
+
+export function isHangupCommitInFlight(): boolean {
+  return hangupCommitInFlight;
+}
 let pipelineGeneration = 0;
 /** Conversation turn counter within one activation (same sessionId). */
 let conversationTurns = 0;
@@ -98,6 +104,13 @@ async function runWebhookPipeline(
 
   const profile = useProfilesStore.getState().getActiveProfile();
   const settings = useSettingsStore.getState().settings;
+  if (!profile?.webhook?.url) {
+    dispatch({
+      type: 'FAIL',
+      message: 'No Hermes webhook URL. Add a profile in Settings.',
+    });
+    return;
+  }
   let sessionId = useVoiceSessionStore.getState().snapshot.context.sessionId;
   if (!sessionId) {
     sessionId = createSessionId();
@@ -265,8 +278,11 @@ async function beginListening(
     });
   }
 
-  // Ready beep on watch SCO in parallel — do not delay STT / AudioRecord.
-  void playListenCue().catch(() => undefined);
+  // Ready beep uses MODE_IN_COMMUNICATION + startBluetoothSco, which knocks
+  // Telecom off HFP (watch mic dies). Skip it while the fake call is recording.
+  if (!opts.watchTrigger) {
+    void playListenCue().catch(() => undefined);
+  }
 
   const silenceMs =
     opts.watchTrigger
@@ -274,7 +290,7 @@ async function beginListening(
       : settings.assistant.silenceThresholdMs;
 
   listening = true;
-  const maxListenMs = opts.watchTrigger ? 12_000 : 10_000;
+  const maxListenMs = opts.watchTrigger ? 90_000 : 10_000;
   timers.push(
     setTimeout(() => {
       if (!listening) return;
@@ -283,6 +299,14 @@ async function beginListening(
   );
 
   try {
+    console.log(
+      `[Stero] beginListening continuous=${opts.continuous} watch=${Boolean(opts.watchTrigger)}`,
+    );
+    if (opts.watchTrigger && !phoneOnly) {
+      console.log('[Stero] recording until hangup (no live STT)');
+      dispatch({ type: 'STT_STARTED' });
+      return;
+    }
     await stt.start(
       {
         language: settings.assistant.language,
@@ -292,6 +316,7 @@ async function beginListening(
       },
       {
         onStarted: () => {
+          console.log('[Stero] listen window open');
           dispatch({ type: 'STT_STARTED' });
         },
         onPartial: (text) => {
@@ -459,6 +484,10 @@ async function continueListening(
 export async function activateVoiceSession(
   deps: VoiceControllerDeps = {},
 ): Promise<void> {
+  if (hangupCommitInFlight) {
+    console.log('[Stero] activate skipped, hangup transcribe in flight');
+    return;
+  }
   const stt = deps.stt ?? defaultSttProvider;
   const settings = useSettingsStore.getState().settings;
   const dispatch = getDispatch();
@@ -492,12 +521,14 @@ export async function activateVoiceSession(
     // Already in a listen/send — do not abort SpeechRecognizer (not-connected).
     if (
       fromWatchUi &&
-      (current === 'LISTENING' ||
+      (current === 'ACTIVATED' ||
+        current === 'LISTENING' ||
         current === 'TRANSCRIBING' ||
         current === 'SENDING' ||
         current === 'WAITING_RESPONSE' ||
         current === 'SPEAKING')
     ) {
+      console.log(`[Stero] activate ignored, already ${current}`);
       return;
     }
     if (fromWatchUi) {
@@ -526,13 +557,19 @@ export async function activateVoiceSession(
   dispatch({ type: 'ACTIVATE', sessionId });
   useVoiceSessionStore.getState().setMicRoute({ label: null, banner: null });
 
-  const perm = await stt.requestPermissions();
-  if (!perm.granted) {
-    dispatch({
-      type: 'FAIL',
-      message: perm.message ?? 'Microphone permission required.',
-    });
-    return;
+  if (!fromWatchUi) {
+    console.log('[Stero] checking STT permissions');
+    const perm = await stt.requestPermissions();
+    console.log(`[Stero] STT permission granted=${perm.granted}`);
+    if (!perm.granted) {
+      dispatch({
+        type: 'FAIL',
+        message: perm.message ?? 'Microphone permission required.',
+      });
+      return;
+    }
+  } else {
+    console.log('[Stero] skip STT permission prompt (watch Talk)');
   }
 
   if (!stt.isAvailable()) {
@@ -590,9 +627,29 @@ export async function commitOnHangup(
   }
 }
 
+async function waitHydrated(ms = 4_000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < ms) {
+    if (
+      useSettingsStore.getState().hydrated &&
+      useProfilesStore.getState().hydrated
+    ) {
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
 async function commitOnHangupBody(
   deps: VoiceControllerDeps,
 ): Promise<void> {
+  console.log('[Stero] hangup commit');
+  try {
+    await setOverlayPhase('thinking');
+  } catch {
+    // ignore
+  }
+  await waitHydrated();
   const stt = deps.stt ?? defaultSttProvider;
   const state = useVoiceSessionStore.getState().snapshot.state;
   if (
@@ -622,9 +679,39 @@ async function commitOnHangupBody(
     return;
   }
 
-  const text = currentHeardText();
+  let text = currentHeardText();
+  let recPath: string | null = null;
+  try {
+    recPath = await takeWatchRecording();
+  } catch {
+    recPath = null;
+  }
+  if (!recPath) {
+    await new Promise((r) => setTimeout(r, 250));
+    try {
+      recPath = await takeWatchRecording();
+    } catch {
+      recPath = null;
+    }
+  }
+  console.log(`[Stero] hangup wav=${recPath ?? 'none'} heard=${text ? 'yes' : 'no'}`);
   await hangupWatchCall();
-  await stopScoAndMicService();
+  await stopMicIndicator();
+
+  if (!text && recPath) {
+    try {
+      text = (await transcribeWatchRecording(recPath)).trim();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Transcription failed.';
+      getDispatch()({ type: 'FAIL', message });
+      if (deps.dismissOverlayUi !== false && isOverlayModeSync()) {
+        void setOverlayPhase('idle');
+        void dismissOverlay();
+      }
+      return;
+    }
+  }
 
   if (!text) {
     await cancelVoiceSession({

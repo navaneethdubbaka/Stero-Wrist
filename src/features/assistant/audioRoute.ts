@@ -70,6 +70,10 @@ export async function stopScoAndMicService(): Promise<void> {
   } catch {
     // ignore
   }
+  await stopMicIndicator();
+}
+
+export async function stopMicIndicator(): Promise<void> {
   try {
     await stopMicForegroundService();
   } catch {

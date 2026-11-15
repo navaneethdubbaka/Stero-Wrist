@@ -58,6 +58,7 @@ type NativeSteroAssistant = {
   consumePendingOverlayCancel(): Promise<boolean>;
   isOverlayHost(): Promise<boolean>;
   isWatchSessionLive(): Promise<boolean>;
+  takeWatchRecording(): Promise<string | null>;
   addListener<EventName extends keyof SteroAssistantModuleEvents>(
     eventName: EventName,
     listener: SteroAssistantModuleEvents[EventName],
@@ -221,6 +222,15 @@ export async function isWatchSessionLive(): Promise<boolean> {
     return await Native.isWatchSessionLive();
   } catch {
     return false;
+  }
+}
+
+export async function takeWatchRecording(): Promise<string | null> {
+  if (!Native) return null;
+  try {
+    return await Native.takeWatchRecording();
+  } catch {
+    return null;
   }
 }
 

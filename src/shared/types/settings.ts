@@ -40,11 +40,23 @@ export type BackendProfile = {
   ttsOverride?: Partial<TtsSettings>;
 };
 
+export type SttEngineId =
+  | 'device'
+  | 'groq_whisper'
+  | 'groq_whisper_turbo'
+  | 'custom';
+
 export type AssistantSettings = {
   enabled: boolean;
   defaultMode: InteractionMode;
   silenceThresholdMs: number;
   language: string;
+  /** After watch hang-up: local recognizer, Groq Whisper, or custom URL. */
+  sttEngine: SttEngineId;
+  /** Custom STT endpoint. POST multipart `audio` + `language`; JSON `{ transcript }`. */
+  sttUrl: string;
+  /** SecureStore id for Groq API key (never the raw key). */
+  groqApiKeySecretId?: string;
 };
 
 export type TtsEventOverrideKey =
@@ -175,6 +187,8 @@ export function createDefaultSettings(): AppSettings {
       defaultMode: 'single_request',
       silenceThresholdMs: 1200,
       language: 'en-US',
+      sttEngine: 'device',
+      sttUrl: '',
     },
     tts: {
       provider: 'system',

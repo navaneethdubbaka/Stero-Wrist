@@ -111,7 +111,7 @@ class SteroWatchConnection(
     setAddress(SteroCallSession.CALL_URI, TelecomManager.PRESENTATION_ALLOWED)
     setCallerDisplayName(SteroCallSession.CALL_NAME, TelecomManager.PRESENTATION_ALLOWED)
     routeBluetooth()
-    SteroCallMic.start()
+    SteroCallMic.start(appContext)
     SteroCallNotifier.show(appContext)
     Log.i(TAG, "connection ACTIVE (call answered)")
   }
@@ -163,9 +163,16 @@ class SteroWatchConnection(
     super.onCallAudioStateChanged(state)
     if (state == null || tearingDown) return
     Log.i(TAG, "callAudio route=${state.route} masked=${state.supportedRouteMask}")
-    if (state.route == CallAudioState.ROUTE_SPEAKER && btRouteTries < 2) {
+    if (state.route == CallAudioState.ROUTE_BLUETOOTH) {
+      btRouteTries = 0
+      return
+    }
+    // Earpiece/speaker means the watch HFP mic is gone — pin Bluetooth back.
+    if (btRouteTries < 8) {
       btRouteTries++
-      routeBluetooth()
+      main.postDelayed({
+        if (!tearingDown) routeBluetooth()
+      }, 150)
     }
   }
 
@@ -175,6 +182,7 @@ class SteroWatchConnection(
     val bt = availableEndpoints.firstOrNull {
       it.endpointType == CallEndpoint.TYPE_BLUETOOTH
     } ?: return
+    if (callAudioState?.route == CallAudioState.ROUTE_BLUETOOTH) return
     try {
       requestCallEndpointChange(
         bt,

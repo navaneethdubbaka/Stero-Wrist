@@ -5,6 +5,7 @@ import { ListRow } from '../../shared/ui/ListRow';
 import { colors, type as typeScale } from '../../shared/theme/tokens';
 import { useProfilesStore } from '../profiles/profilesStore';
 import { useSettingsStore } from './settingsStore';
+import { sttEngineLabel } from './SttSettingsScreen';
 import type { RootStackParamList } from '../../app/navigation';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Settings'>;
@@ -47,6 +48,11 @@ export function SettingsHubScreen({ navigation }: Props) {
           title="Default assistant role"
           subtitle="Watch button → Stero Wrist (Android)"
           onPress={() => navigation.navigate('AssistantRole')}
+        />
+        <ListRow
+          title="Speech to Text"
+          subtitle={sttEngineLabel(assistant.sttEngine)}
+          onPress={() => navigation.navigate('SttSettings')}
         />
         <ListRow
           title="Text to speech"

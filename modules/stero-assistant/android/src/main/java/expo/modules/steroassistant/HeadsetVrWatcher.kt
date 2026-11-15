@@ -59,10 +59,19 @@ object HeadsetVrWatcher {
     val ctx = appContext ?: return@Runnable
     val foreign = isForeignPhoneCall(ctx)
     val phoneUi = looksLikeRealPhoneUi(ctx)
-    Log.i(TAG, "audio probe foreign=$foreign phoneUi=$phoneUi ourSco=$ourSco ui=${SteroOverlayBridge.isUiShowing()}")
+    val appOpen = isSteroMainUiForeground(ctx)
+    Log.i(
+      TAG,
+      "audio probe foreign=$foreign phoneUi=$phoneUi ourSco=$ourSco appOpen=$appOpen ui=${SteroOverlayBridge.isUiShowing()}",
+    )
     if (SteroOverlayBridge.isUiShowing() || SteroCallSession.isOwned()) return@Runnable
     if (foreign || phoneUi) {
       Log.i(TAG, "Ignore headset audio — real call")
+      return@Runnable
+    }
+    // Settings / Home probe starts SCO. That is not watch Talk.
+    if (ourSco || appOpen) {
+      Log.i(TAG, "Skip sco_delayed — our SCO or Stero settings already open")
       return@Runnable
     }
     triggerAssistantUi("sco_delayed")
@@ -336,6 +345,35 @@ object HeadsetVrWatcher {
       // ignore
     }
     return false
+  }
+
+  /** MainActivity / settings — not Assist overlay. */
+  private fun isSteroMainUiForeground(context: Context): Boolean {
+    try {
+      val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+        ?: return false
+      val end = System.currentTimeMillis()
+      val events = usm.queryEvents(end - 3000, end)
+      val event = UsageEvents.Event()
+      var lastPkg = ""
+      var lastCls = ""
+      while (events.hasNextEvent()) {
+        events.getNextEvent(event)
+        if (event.eventType != UsageEvents.Event.MOVE_TO_FOREGROUND &&
+          event.eventType != UsageEvents.Event.ACTIVITY_RESUMED
+        ) {
+          continue
+        }
+        lastPkg = event.packageName ?: continue
+        lastCls = event.className ?: ""
+      }
+      if (!lastPkg.contains("sterowrist")) return false
+      return !lastCls.contains("SteroAssist") &&
+        !lastCls.contains("SteroHeadless") &&
+        !lastCls.contains("VoiceInteraction")
+    } catch (_: Exception) {
+      return false
+    }
   }
 
   /** Cellular / default-dialer call — not our self-managed Stero session. */

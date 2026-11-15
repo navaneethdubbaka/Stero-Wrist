@@ -30,7 +30,7 @@ class SteroMicForegroundService : Service() {
       @Suppress("DEPRECATION")
       startForeground(NOTIFICATION_ID, notification)
     }
-    SteroCallMic.start()
+    SteroCallMic.start(this)
     return START_STICKY
   }
 

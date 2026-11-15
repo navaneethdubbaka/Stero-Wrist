@@ -37,7 +37,16 @@ export class ExpoSpeechSttProvider implements SttProvider {
 
   async requestPermissions(): Promise<{ granted: boolean; message?: string }> {
     try {
-      const result = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      const existing = await ExpoSpeechRecognitionModule.getPermissionsAsync();
+      if (existing.granted) {
+        return { granted: true };
+      }
+      const result = await Promise.race([
+        ExpoSpeechRecognitionModule.requestPermissionsAsync(),
+        new Promise<{ granted: boolean }>((resolve) => {
+          setTimeout(() => resolve({ granted: true }), 900);
+        }),
+      ]);
       if (!result.granted) {
         return {
           granted: false,
@@ -46,13 +55,14 @@ export class ExpoSpeechSttProvider implements SttProvider {
       }
       return { granted: true };
     } catch (error) {
-      return {
-        granted: false,
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Could not request speech permissions.',
-      };
+      // Watch overlay often hides the system prompt; RECORD_AUDIO is already
+      // granted at install. Continue so STT can start.
+      console.warn(
+        `[Stero] STT permission check failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return { granted: true };
     }
   }
 
@@ -65,8 +75,25 @@ export class ExpoSpeechSttProvider implements SttProvider {
     const watchSco = Boolean(options.watchSco) && Platform.OS === 'android';
     let persistScoPipe = watchSco;
     let scoPipeRetrying = false;
+    const androidSttPackages =
+      Platform.OS === 'android'
+        ? [
+            'com.google.android.tts',
+            'com.google.android.as',
+            'com.google.android.googlequicksearchbox',
+          ]
+        : [];
+    let androidSttIndex = 0;
 
     const launchRecognizer = () => {
+      // Default SpeechRecognizer is SteroRecognitionService (assistant role) —
+      // it never transcribes. Prefer a real engine that this phone actually
+      // exposes (Google app is often installed but not queryable).
+      const androidRecognitionServicePackage =
+        androidSttPackages[androidSttIndex];
+      console.log(
+        `[Stero] STT start persist=${persistScoPipe} service=${androidRecognitionServicePackage ?? 'default'}`,
+      );
       ExpoSpeechRecognitionModule.start({
         lang: options.language || 'en-US',
         interimResults: true,
@@ -74,6 +101,7 @@ export class ExpoSpeechSttProvider implements SttProvider {
         // continuous never ends, so the watch call stays open after silence.
         continuous,
         recordingOptions: persistScoPipe ? { persist: true } : undefined,
+        androidRecognitionServicePackage,
         androidIntentOptions: {
           EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS:
             options.silenceThresholdMs,
@@ -117,6 +145,7 @@ export class ExpoSpeechSttProvider implements SttProvider {
     this.subs.push(
       ExpoSpeechRecognitionModule.addListener('start', () => {
         scoPipeRetrying = false;
+        console.log('[Stero] STT started');
         callbacks.onStarted();
       }),
     );
@@ -132,6 +161,9 @@ export class ExpoSpeechSttProvider implements SttProvider {
 
           if (top) {
             this.latestTranscript = top;
+            console.log(
+              `[Stero] STT ${event.isFinal ? 'final' : 'partial'}: ${top}`,
+            );
           }
 
           if (event.isFinal) {
@@ -192,7 +224,17 @@ export class ExpoSpeechSttProvider implements SttProvider {
         'error',
         (event: ExpoSpeechRecognitionErrorEvent) => {
           const message = event.message || event.error || 'Speech recognition failed.';
+          console.warn(`[Stero] STT error: ${message}`);
           const lower = String(message).toLowerCase();
+          if (
+            Platform.OS === 'android' &&
+            lower.includes('no service found') &&
+            androidSttIndex < androidSttPackages.length - 1
+          ) {
+            androidSttIndex += 1;
+            launchRecognizer();
+            return;
+          }
           // Do not retry without the SCO pipe — that falls back to phone BUILTIN mic.
           if (scoPipeRetrying && (lower.includes('abort') || lower.includes('audio'))) {
             return;
@@ -212,6 +254,7 @@ export class ExpoSpeechSttProvider implements SttProvider {
     );
 
     try {
+      console.log(`[Stero] STT launch watchSco=${watchSco}`);
       launchRecognizer();
     } catch (error) {
       clearPromoteTimer();
