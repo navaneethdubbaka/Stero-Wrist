@@ -10,8 +10,16 @@ import {
 } from '../webhook/errors';
 import { sendTranscript } from '../webhook/HermesWebhookClient';
 import { createSessionId } from '../webhook/sessionId';
+import {
+  beginWatchCapture,
+  endWatchCapture,
+  playListenCue,
+  playTranscriptCue,
+} from '../../../modules/stero-assistant/src';
 import { preferWatchMic, stopScoAndMicService } from './audioRoute';
 import { applyAudioOutput } from './audioOutput';
+import { dismissOverlay, setOverlayPhase } from './overlayBridge';
+import { isOverlayModeSync } from './overlayMode';
 import type { SttProvider } from './stt/SttProvider';
 import { defaultSttProvider } from './stt/ExpoSpeechSttProvider';
 import { useVoiceSessionStore } from './voiceSessionStore';
@@ -22,6 +30,8 @@ let pipelineGeneration = 0;
 /** Conversation turn counter within one activation (same sessionId). */
 let conversationTurns = 0;
 const CONVERSATION_TURN_CAP = 8;
+/** Last activate came from watch Talk / overlay — keep using watch mic on follow-ups. */
+let lastWatchTrigger = false;
 
 function clearTimers() {
   for (const t of timers) clearTimeout(t);
@@ -160,8 +170,12 @@ function softSttError(message: string): boolean {
     lower.includes('no-speech') ||
     lower.includes('no speech') ||
     lower.includes('aborted') ||
-    lower.includes('client-error') ||
-    lower.includes('speech timeout')
+    // ERROR_CLIENT after cancel() on empty finals ("Other client side errors.")
+    lower.includes('client') ||
+    lower.includes('speech timeout') ||
+    lower.includes('speech-timeout') ||
+    lower.includes('busy') ||
+    lower.includes('network')
   );
 }
 
@@ -174,33 +188,109 @@ export type VoiceActivateTrigger =
 export type VoiceControllerDeps = {
   stt?: SttProvider;
   trigger?: VoiceActivateTrigger;
+  /** When false, tear down listening without closing the Muse orb (re-activate). */
+  dismissOverlayUi?: boolean;
+  /** Keep warm HFP SCO across cancel/re-activate (watch Talk path). */
+  preserveSco?: boolean;
 };
+
+async function cueTranscriptIfNeeded(text: string): Promise<void> {
+  if (!text.trim()) return;
+  try {
+    await playTranscriptCue();
+  } catch {
+    // non-fatal
+  }
+}
+
+async function hangupWatchCall(): Promise<void> {
+  try {
+    await endWatchCapture();
+  } catch {
+    // ignore
+  }
+}
+
+async function afterTranscript(
+  text: string,
+  opts: { keepListening?: boolean } = {},
+): Promise<void> {
+  await cueTranscriptIfNeeded(text);
+  if (!opts.keepListening) {
+    await hangupWatchCall();
+  }
+}
 
 async function beginListening(
   stt: SttProvider,
-  opts: { continuous: boolean; reuseSession: boolean },
+  opts: {
+    continuous: boolean;
+    reuseSession: boolean;
+    watchTrigger?: boolean;
+    /** Skip HFP SCO (phone STT retry after no-speech). */
+    phoneOnly?: boolean;
+  },
 ): Promise<void> {
   const settings = useSettingsStore.getState().settings;
   const dispatch = getDispatch();
   const setPartial = getSetPartial();
   const setMicRoute = useVoiceSessionStore.getState().setMicRoute;
 
-  const route = await preferWatchMic(settings.audio.inputDevice);
-  setMicRoute({
-    label:
-      route.info.kind === 'watch_hfp'
-        ? `Mic: ${route.info.label || 'Watch HFP'}`
-        : `Mic: ${route.info.label || 'Phone'}`,
-    banner: route.banner,
-  });
+  const phoneOnly = Boolean(opts.phoneOnly);
+  let watchSco = false;
+
+  if (phoneOnly) {
+    setMicRoute({
+      label: 'Mic: Phone — speak after the beep',
+      banner: 'Using phone mic',
+    });
+  } else if (opts.watchTrigger) {
+    const info = await beginWatchCapture();
+    watchSco = Boolean(info.scoOn && info.kind === 'watch_hfp');
+    setMicRoute({
+      label: watchSco
+        ? 'Mic: Watch (HFP) — speak after the beep'
+        : 'Mic: Phone — speak after the beep',
+      banner: watchSco ? null : 'Using phone mic',
+    });
+  } else {
+    const route = await preferWatchMic(settings.audio.inputDevice);
+    watchSco = route.info.kind === 'watch_hfp' && route.info.scoOn;
+    setMicRoute({
+      label: watchSco
+        ? 'Mic: Watch (HFP) — speak after the beep'
+        : 'Mic: Phone — speak after the beep',
+      banner: route.banner,
+    });
+  }
+
+  // Ready beep on watch SCO in parallel — do not delay STT / AudioRecord.
+  void playListenCue().catch(() => undefined);
+
+  const silenceMs =
+    opts.watchTrigger
+      ? Math.max(settings.assistant.silenceThresholdMs, 3500)
+      : settings.assistant.silenceThresholdMs;
 
   listening = true;
+  const maxListenMs = opts.watchTrigger ? 12_000 : 10_000;
+  timers.push(
+    setTimeout(() => {
+      if (!listening) return;
+      listening = false;
+      void stt.abort();
+      void stopScoAndMicService();
+      dispatch({ type: 'TRANSCRIPT_EMPTY' });
+    }, maxListenMs),
+  );
+
   try {
     await stt.start(
       {
         language: settings.assistant.language,
-        silenceThresholdMs: settings.assistant.silenceThresholdMs,
+        silenceThresholdMs: silenceMs,
         continuous: opts.continuous,
+        watchSco,
       },
       {
         onStarted: () => {
@@ -210,16 +300,20 @@ async function beginListening(
           setPartial(text);
         },
         onFinal: (text) => {
-          const trimmed = text.trim();
+          const trimmed =
+            text.trim() ||
+            useVoiceSessionStore.getState().partialTranscript.trim();
           if (opts.continuous) {
             if (!trimmed) return;
             const state = useVoiceSessionStore.getState().snapshot.state;
             // Drop overlapping segments while a previous turn is in flight.
             if (state !== 'LISTENING') return;
             dispatch({ type: 'TRANSCRIPT_FINAL', transcript: trimmed });
-            if (useVoiceSessionStore.getState().snapshot.state === 'SENDING') {
-              void runWebhookPipeline(trimmed, { keepListening: true });
-            }
+            void afterTranscript(trimmed, { keepListening: true }).then(() => {
+              if (useVoiceSessionStore.getState().snapshot.state === 'SENDING') {
+                void runWebhookPipeline(trimmed, { keepListening: true });
+              }
+            });
             return;
           }
 
@@ -230,10 +324,11 @@ async function beginListening(
             return;
           }
           dispatch({ type: 'TRANSCRIPT_FINAL', transcript: trimmed });
-          const state = useVoiceSessionStore.getState().snapshot.state;
-          if (state === 'SENDING') {
-            void runWebhookPipeline(trimmed);
-          }
+          void afterTranscript(trimmed).then(() => {
+            if (useVoiceSessionStore.getState().snapshot.state === 'SENDING') {
+              void runWebhookPipeline(trimmed);
+            }
+          });
         },
         onEnd: () => {
           if (opts.continuous) {
@@ -251,9 +346,11 @@ async function beginListening(
               partial;
             if (text.trim()) {
               dispatch({ type: 'TRANSCRIPT_FINAL', transcript: text });
-              if (useVoiceSessionStore.getState().snapshot.state === 'SENDING') {
-                void runWebhookPipeline(text.trim());
-              }
+              void afterTranscript(text.trim()).then(() => {
+                if (useVoiceSessionStore.getState().snapshot.state === 'SENDING') {
+                  void runWebhookPipeline(text.trim());
+                }
+              });
             } else {
               void stopScoAndMicService();
               dispatch({ type: 'TRANSCRIPT_EMPTY' });
@@ -264,14 +361,36 @@ async function beginListening(
           if (opts.continuous && softSttError(message)) {
             return;
           }
+          // Already finalized / webhook in flight — ignore STT teardown noise
+          // (empty onResults → nomatch → cancel → ERROR_CLIENT).
+          const stateNow = useVoiceSessionStore.getState().snapshot.state;
+          if (
+            stateNow === 'SENDING' ||
+            stateNow === 'WAITING_RESPONSE' ||
+            stateNow === 'SPEAKING'
+          ) {
+            return;
+          }
           listening = false;
           if (softSttError(message)) {
             const partial = useVoiceSessionStore.getState().partialTranscript;
             if (partial.trim()) {
               dispatch({ type: 'TRANSCRIPT_FINAL', transcript: partial });
-              if (useVoiceSessionStore.getState().snapshot.state === 'SENDING') {
-                void runWebhookPipeline(partial.trim());
-              }
+              void afterTranscript(partial.trim()).then(() => {
+                if (useVoiceSessionStore.getState().snapshot.state === 'SENDING') {
+                  void runWebhookPipeline(partial.trim());
+                }
+              });
+              return;
+            }
+            // Phone-only retry only when watch SCO never came up.
+            if (opts.watchTrigger && !opts.phoneOnly && !watchSco) {
+              void beginListening(stt, {
+                continuous: opts.continuous,
+                reuseSession: true,
+                watchTrigger: true,
+                phoneOnly: true,
+              });
               return;
             }
             void stopScoAndMicService();
@@ -297,7 +416,6 @@ async function beginListening(
         : message,
     });
   }
-  void opts.reuseSession;
 }
 
 /** Conversation follow-up listen — same sessionId, new LISTENING. */
@@ -330,7 +448,11 @@ async function continueListening(
     return;
   }
 
-  await beginListening(stt, { continuous: false, reuseSession: true });
+  await beginListening(stt, {
+    continuous: false,
+    reuseSession: true,
+    watchTrigger: lastWatchTrigger,
+  });
 }
 
 export async function activateVoiceSession(
@@ -359,11 +481,29 @@ export async function activateVoiceSession(
   const mode = settings.assistant.defaultMode;
   const continuous = mode === 'continuous';
 
+  const fromWatchUi =
+    deps.trigger === 'assistant' || deps.trigger === 'deeplink';
+  lastWatchTrigger = fromWatchUi;
+
   const current = useVoiceSessionStore.getState().snapshot.state;
   if (current !== 'IDLE' && current !== 'ERROR') {
-    // Re-activate from watch/assistant: cancel then restart.
-    if (deps.trigger === 'assistant' || deps.trigger === 'deeplink') {
-      await cancelVoiceSession(deps);
+    // Already in a listen/send — do not abort SpeechRecognizer (not-connected).
+    if (
+      fromWatchUi &&
+      (current === 'LISTENING' ||
+        current === 'TRANSCRIBING' ||
+        current === 'SENDING' ||
+        current === 'WAITING_RESPONSE' ||
+        current === 'SPEAKING')
+    ) {
+      return;
+    }
+    if (fromWatchUi) {
+      await cancelVoiceSession({
+        ...deps,
+        dismissOverlayUi: false,
+        preserveSco: true,
+      });
     } else {
       return;
     }
@@ -373,7 +513,10 @@ export async function activateVoiceSession(
   pipelineGeneration += 1;
   conversationTurns = 0;
   await stopActiveTts();
-  await stopScoAndMicService();
+  // Watch Talk warms HFP SCO in native before JS runs — don't kill it here.
+  if (!fromWatchUi) {
+    await stopScoAndMicService();
+  }
   const sessionId = createSessionId();
   dispatch({ type: 'ACTIVATE', sessionId });
   useVoiceSessionStore.getState().setMicRoute({ label: null, banner: null });
@@ -399,6 +542,7 @@ export async function activateVoiceSession(
   await beginListening(stt, {
     continuous,
     reuseSession: false,
+    watchTrigger: fromWatchUi,
   });
 }
 
@@ -429,10 +573,17 @@ export async function cancelVoiceSession(
   listening = false;
   conversationTurns = CONVERSATION_TURN_CAP;
   await stopActiveTts();
-  await stopScoAndMicService();
+  if (!deps.preserveSco) {
+    await stopScoAndMicService();
+  }
   await stt.abort();
   useVoiceSessionStore.getState().setMicRoute({ label: null, banner: null });
   getDispatch()({ type: 'CANCEL' });
+  const shouldDismissOrb = deps.dismissOverlayUi !== false;
+  if (shouldDismissOrb && isOverlayModeSync()) {
+    void setOverlayPhase('idle');
+    void dismissOverlay();
+  }
 }
 
 export function dismissVoiceError(): void {

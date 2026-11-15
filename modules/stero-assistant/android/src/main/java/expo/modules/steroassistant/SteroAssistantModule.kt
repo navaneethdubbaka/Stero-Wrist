@@ -20,18 +20,26 @@ class SteroAssistantModule : Module() {
     sendEvent("assistantActivate", mapOf("source" to source))
   }
 
+  fun emitOverlayCancel() {
+    sendEvent("assistantOverlayCancel", emptyMap<String, Any>())
+  }
+
   override fun definition() = ModuleDefinition {
     Name("SteroAssistant")
 
-    Events("assistantActivate")
+    Events("assistantActivate", "assistantOverlayCancel")
 
     OnCreate {
       AssistantActivationBridge.module = this@SteroAssistantModule
+      SteroOverlayBridge.module = this@SteroAssistantModule
     }
 
     OnDestroy {
       if (AssistantActivationBridge.module === this@SteroAssistantModule) {
         AssistantActivationBridge.module = null
+      }
+      if (SteroOverlayBridge.module === this@SteroAssistantModule) {
+        SteroOverlayBridge.module = null
       }
     }
 
@@ -77,6 +85,45 @@ class SteroAssistantModule : Module() {
 
     AsyncFunction("stopMicForegroundService") {
       SteroMicForegroundService.stop(context)
+    }
+
+    AsyncFunction("setOverlayPhase") { phase: String ->
+      SteroOverlayBridge.setPhase(phase)
+    }
+
+    AsyncFunction("dismissOverlay") {
+      AudioRouteHelper.stopInputRoute(context)
+      SteroOverlayBridge.dismiss()
+    }
+
+    AsyncFunction("playListenCue") {
+      ListenCueHelper.playReadyBeepBlocking(context)
+    }
+
+    AsyncFunction("playTranscriptCue") {
+      ListenCueHelper.playTranscriptBeepBlocking(context)
+    }
+
+    AsyncFunction("beginWatchCapture") {
+      AudioRouteHelper.beginWatchCapture(context)
+    }
+
+    AsyncFunction("endWatchCapture") {
+      AudioRouteHelper.endWatchCapture(context)
+    }
+
+    AsyncFunction("releaseWatchListening") {
+      AudioRouteHelper.endWatchCapture(context)
+    }
+
+    AsyncFunction("consumePendingOverlayCancel") {
+      AssistantActivationBridge.consumePendingCancel()
+    }
+
+    AsyncFunction("isOverlayHost") {
+      val activity = appContext.currentActivity
+      val name = activity?.javaClass?.name.orEmpty()
+      name.contains("SteroHeadless")
     }
   }
 

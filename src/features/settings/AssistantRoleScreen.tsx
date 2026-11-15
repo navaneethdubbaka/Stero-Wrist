@@ -42,8 +42,12 @@ export function AssistantRoleScreen() {
     <Screen>
       <Text style={styles.title}>Default assistant</Text>
       <Text style={styles.hint}>
-        Watch “Talk to assistant” uses the phone’s voice interaction service —
-        not only the Digital assistant role. Both must point at Stero.
+        Power-button Assist uses Stero’s VoiceInteraction overlay. Watch “Talk”
+        is different — Android sends VOICE_COMMAND to Google HandsFree first;
+        if Google isn’t the default assistant, HandsFree opens this Digital
+        assistant settings page (same for Muse/ChatGPT). Only Gemini works from
+        the watch until Google’s “Open by default” for voice is cleared or Stero
+        intercepts the headset VR link.
       </Text>
 
       {Platform.OS !== 'android' ? (
@@ -129,14 +133,34 @@ export function AssistantRoleScreen() {
             <Text style={styles.secondaryText}>Refresh status</Text>
           </Pressable>
 
+          <Pressable
+            style={styles.secondaryBtn}
+            onPress={() => {
+              void Linking.openURL(
+                'intent:#Intent;action=android.settings.APPLICATION_DETAILS_SETTINGS;data=package:com.google.android.googlequicksearchbox;end',
+              ).catch(() => {
+                void Linking.openSettings();
+              });
+            }}
+          >
+            <Text style={styles.secondaryText}>
+              Open Google app info (clear Open by default)
+            </Text>
+          </Pressable>
+
           <View style={styles.banner}>
-            <Text style={styles.bannerTitle}>Why the watch shows None</Text>
+            <Text style={styles.bannerTitle}>Fix watch Talk → settings page</Text>
             <Text style={styles.bannerBody}>
-              Selecting Stero under “Default digital assistant app” only sets
-              ROLE_ASSISTANT. The watch Assist screen reads
-              voice_interaction_service, which can stay None until written
-              separately. Tap “Fix watch None” above after granting the ADB
-              permission once.
+              1. Open Google app info → Open by default → Clear defaults
+            </Text>
+            <Text style={styles.bannerBody}>
+              2. Press Talk on the watch → if Android asks which app, choose
+              Stero Wrist → Always
+            </Text>
+            <Text style={styles.bannerBody}>
+              Power button will keep using Stero’s overlay either way. Gemini
+              works from the watch only because HandsFree is Google and Google
+              is then the default assistant.
             </Text>
           </View>
 

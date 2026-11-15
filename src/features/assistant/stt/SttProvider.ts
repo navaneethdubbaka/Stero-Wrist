@@ -4,6 +4,11 @@ export type SttStartOptions = {
   silenceThresholdMs: number;
   /** Continuous recognition — emits multiple finals until abort. */
   continuous?: boolean;
+  /**
+   * Watch HFP SCO is held — stream AudioRecord into the recognizer
+   * (EXTRA_AUDIO_SOURCE) instead of Google's builtin mic.
+   */
+  watchSco?: boolean;
 };
 
 export type SttCallbacks = {

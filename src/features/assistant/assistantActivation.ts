@@ -1,14 +1,40 @@
 import { AppState, Linking, Platform } from 'react-native';
 import {
   addAssistantActivateListener,
+  addAssistantOverlayCancelListener,
   consumePendingActivation,
+  consumePendingOverlayCancel,
+  isOverlayHost,
   isSteroAssistantAvailable,
 } from '../../../modules/stero-assistant/src';
-import { activateVoiceSession } from './VoiceSessionController';
+import { cancelVoiceSession, activateVoiceSession } from './VoiceSessionController';
+import {
+  isOverlayLaunchIntent,
+  markOverlayMode,
+} from './overlayMode';
+
+async function markOverlayIfHeadless(): Promise<void> {
+  if (!isSteroAssistantAvailable()) return;
+  try {
+    if (await isOverlayHost()) {
+      markOverlayMode(true);
+    }
+  } catch {
+    // MainActivity must never enter overlay chrome.
+  }
+}
 
 let subscribed = false;
-/** Dedup rapid cold-start + url event double fire. */
+/** Dedup rapid cold-start: assistant event + overlay deeplink + pending. */
 let lastActivateAt = 0;
+const ACTIVATE_DEDUPE_MS = 3000;
+
+function tryActivate(trigger: 'assistant' | 'deeplink'): void {
+  const now = Date.now();
+  if (now - lastActivateAt < ACTIVATE_DEDUPE_MS) return;
+  lastActivateAt = now;
+  void activateVoiceSession({ trigger });
+}
 
 function handleActivateUrl(url: string | null): void {
   if (!url) return;
@@ -17,10 +43,10 @@ function handleActivateUrl(url: string | null): void {
     lower.startsWith('stero-wrist://activate') ||
     lower.includes('://activate')
   ) {
-    const now = Date.now();
-    if (now - lastActivateAt < 800) return;
-    lastActivateAt = now;
-    void activateVoiceSession({ trigger: 'deeplink' });
+    if (isOverlayLaunchIntent(url)) {
+      void markOverlayIfHeadless();
+    }
+    tryActivate('deeplink');
   }
 }
 
@@ -40,13 +66,27 @@ export function startAssistantActivationListeners(): () => void {
   if (isSteroAssistantAvailable()) {
     subs.push(
       addAssistantActivateListener(() => {
-        void activateVoiceSession({ trigger: 'assistant' });
+        void markOverlayIfHeadless();
+        tryActivate('assistant');
+      }),
+    );
+
+    subs.push(
+      addAssistantOverlayCancelListener(() => {
+        void cancelVoiceSession({ dismissOverlayUi: true });
       }),
     );
 
     void consumePendingActivation().then((pending) => {
       if (pending) {
-        void activateVoiceSession({ trigger: 'assistant' });
+        void markOverlayIfHeadless();
+        tryActivate('assistant');
+      }
+    });
+
+    void consumePendingOverlayCancel().then((pending) => {
+      if (pending) {
+        void cancelVoiceSession({ dismissOverlayUi: true });
       }
     });
   }
