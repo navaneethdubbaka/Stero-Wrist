@@ -246,7 +246,7 @@ async function beginListening(
     });
   } else if (opts.watchTrigger) {
     const info = await beginWatchCapture();
-    watchSco = Boolean(info.scoOn && info.kind === 'watch_hfp');
+    watchSco = info.kind === 'watch_hfp' || Boolean(info.scoOn);
     setMicRoute({
       label: watchSco
         ? 'Mic: Watch (HFP) — speak after the beep'

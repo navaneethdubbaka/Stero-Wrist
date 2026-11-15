@@ -34,15 +34,16 @@ object SteroCallNotifier {
     }
     builder
       .setSmallIcon(android.R.drawable.stat_sys_phone_call)
-      .setContentTitle("Call answered")
-      .setContentText("Stero")
+      .setContentTitle(SteroCallSession.CALL_NAME)
+      .setContentText(SteroCallSession.CALL_NUMBER)
       .setOngoing(true)
       .setCategory(Notification.CATEGORY_CALL)
       .setVisibility(Notification.VISIBILITY_PUBLIC)
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
       val person = Person.Builder()
-        .setName("Stero")
+        .setName(SteroCallSession.CALL_NAME)
+        .setUri(SteroCallSession.CALL_URI.toString())
         .setImportant(true)
         .build()
       builder.setStyle(Notification.CallStyle.forOngoingCall(person, hangup))

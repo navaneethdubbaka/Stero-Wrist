@@ -1,7 +1,5 @@
 package expo.modules.steroassistant
 
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothDevice
 import android.content.Context
 import android.net.Uri
 import android.os.Build
@@ -89,17 +87,18 @@ class SteroWatchConnection(
     setConnectionProperties(PROPERTY_SELF_MANAGED)
     setConnectionCapabilities(CAPABILITY_MUTE or CAPABILITY_SUPPORT_HOLD or CAPABILITY_HOLD)
     setAudioModeIsVoip(false)
-    setAddress(address, TelecomManager.PRESENTATION_ALLOWED)
-    setCallerDisplayName("Stero", TelecomManager.PRESENTATION_ALLOWED)
+    setAddress(SteroCallSession.CALL_URI, TelecomManager.PRESENTATION_ALLOWED)
+    setCallerDisplayName(SteroCallSession.CALL_NAME, TelecomManager.PRESENTATION_ALLOWED)
     active = this
   }
 
   fun scheduleAnswered() {
+    // Give the watch time to paint incoming/in-call before we go ACTIVE.
     main.postDelayed({
       if (!tearingDown && state != STATE_DISCONNECTED && state != STATE_ACTIVE) {
         answerNow()
       }
-    }, 80)
+    }, 400)
   }
 
   fun answerNow() {
@@ -109,7 +108,10 @@ class SteroWatchConnection(
     } catch (e: Exception) {
       Log.w(TAG, "setActive: ${e.message}")
     }
+    setAddress(SteroCallSession.CALL_URI, TelecomManager.PRESENTATION_ALLOWED)
+    setCallerDisplayName(SteroCallSession.CALL_NAME, TelecomManager.PRESENTATION_ALLOWED)
     routeBluetooth()
+    SteroCallMic.start()
     SteroCallNotifier.show(appContext)
     Log.i(TAG, "connection ACTIVE (call answered)")
   }
@@ -117,6 +119,7 @@ class SteroWatchConnection(
   fun disconnectLocal() {
     if (tearingDown) return
     tearingDown = true
+    SteroCallMic.stop()
     SteroCallNotifier.hide(appContext)
     try {
       setDisconnected(DisconnectCause(DisconnectCause.LOCAL))
@@ -160,7 +163,7 @@ class SteroWatchConnection(
     super.onCallAudioStateChanged(state)
     if (state == null || tearingDown) return
     Log.i(TAG, "callAudio route=${state.route} masked=${state.supportedRouteMask}")
-    if (state.route != CallAudioState.ROUTE_BLUETOOTH && btRouteTries < 6) {
+    if (state.route == CallAudioState.ROUTE_SPEAKER && btRouteTries < 2) {
       btRouteTries++
       routeBluetooth()
     }
@@ -195,34 +198,9 @@ class SteroWatchConnection(
     try {
       @Suppress("DEPRECATION")
       setAudioRoute(CallAudioState.ROUTE_BLUETOOTH)
+      Log.i(TAG, "setAudioRoute BLUETOOTH")
     } catch (e: Exception) {
       Log.w(TAG, "setAudioRoute BT: ${e.message}")
-    }
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-      firstHeadsetDevice()?.let { device ->
-        try {
-          @Suppress("DEPRECATION")
-          requestBluetoothAudio(device)
-          Log.i(TAG, "requestBluetoothAudio ${device.address}")
-        } catch (e: Exception) {
-          Log.w(TAG, "requestBluetoothAudio: ${e.message}")
-        }
-      }
-    }
-  }
-
-  private fun firstHeadsetDevice(): BluetoothDevice? {
-    val adapter = BluetoothAdapter.getDefaultAdapter() ?: return null
-    return try {
-      adapter.bondedDevices?.firstOrNull { device ->
-        try {
-          BluetoothAdapter.checkBluetoothAddress(device.address)
-        } catch (_: Exception) {
-          true
-        }
-      }
-    } catch (_: SecurityException) {
-      null
     }
   }
 

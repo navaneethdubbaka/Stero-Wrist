@@ -127,6 +127,11 @@ object AudioRouteHelper {
       SteroCallSession.awaitActive(3000)
     }
     val result = startInputRoute(context, preferWatch = true)
+    // Android 13+: SpeechRecognizer persist needs the AudioRecord. Below 13,
+    // keep our recorder so the mic indicator stays on.
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      SteroCallMic.stop()
+    }
     val am = audioManager(context)
     val comm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
       am.communicationDevice?.let { deviceLabel(it, it.type.toString()) } ?: "none"
@@ -244,12 +249,16 @@ object AudioRouteHelper {
 
     try {
       val telecomUp = SteroCallSession.isActive()
-      if (isVirtualCallUp(context, am)) {
+      val label = findScoInput(am)?.let { deviceLabel(it, null) }
+        ?: headset.name
+        ?: "Watch HFP"
+
+      if (telecomUp) {
+        // Telecom owns SCO. Do not startBluetoothSco / MODE_IN_CALL — that
+        // drops the watch native in-call UI.
         HeadsetVrWatcher.markOurSco(true)
-        val label = findScoInput(am)?.let { deviceLabel(it, null) }
-          ?: headset.name
-          ?: "Watch HFP"
-        Log.i("SteroAudioRoute", "call audio already up telecom=$telecomUp label=$label")
+        val ready = isVirtualCallUp(context, am)
+        Log.i("SteroAudioRoute", "telecom call up sco=$ready label=$label")
         return mapOf(
           "label" to label,
           "kind" to "watch_hfp",
@@ -258,7 +267,18 @@ object AudioRouteHelper {
         )
       }
 
-      am.mode = if (telecomUp) AudioManager.MODE_IN_CALL else AudioManager.MODE_IN_COMMUNICATION
+      if (isVirtualCallUp(context, am)) {
+        HeadsetVrWatcher.markOurSco(true)
+        Log.i("SteroAudioRoute", "call audio already up label=$label")
+        return mapOf(
+          "label" to label,
+          "kind" to "watch_hfp",
+          "scoOn" to true,
+          "hfpAvailable" to true,
+        )
+      }
+
+      am.mode = AudioManager.MODE_IN_COMMUNICATION
       am.isSpeakerphoneOn = false
 
       val routeDevice = findScoInput(am) ?: findScoOutput(am)
@@ -266,7 +286,6 @@ object AudioRouteHelper {
         am.setCommunicationDevice(routeDevice)
       }
 
-      // Telecom owns the "call"; do not startVoiceRecognition (AT+BVRA = assistant UI).
       HeadsetVrWatcher.markOurSco(true)
       kickBluetoothSco(am)
 
@@ -289,10 +308,6 @@ object AudioRouteHelper {
       ready = isVirtualCallUp(context, am)
       val scoOn = am.isBluetoothScoOn
       val audio = isHeadsetAudioConnected(context)
-      val label = findScoInput(am)?.let { deviceLabel(it, null) }
-        ?: headset.name
-        ?: "Watch HFP"
-
       Log.i(
         "SteroAudioRoute",
         "virtualCall ready=$ready scoOn=$scoOn audio=$audio",

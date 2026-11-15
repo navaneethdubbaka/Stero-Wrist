@@ -17,8 +17,10 @@ import android.util.Log
 object SteroCallSession {
   private const val TAG = "SteroCall"
   private const val ACCOUNT_ID = "stero_watch_call"
+  const val CALL_NAME = "Stero"
+  const val CALL_NUMBER = "010"
 
-  val CALL_URI: Uri = Uri.fromParts(PhoneAccount.SCHEME_TEL, "100", null)
+  val CALL_URI: Uri = Uri.fromParts(PhoneAccount.SCHEME_TEL, CALL_NUMBER, null)
 
   @Volatile
   private var placed = false
@@ -28,7 +30,8 @@ object SteroCallSession {
   }
 
   fun startAnsweredCall(context: Context) {
-    if (placed || isActive()) return
+    if (isActive() || SteroWatchConnection.active != null) return
+    placed = false
     val app = context.applicationContext
     val tm = app.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager ?: return
     val handle = registerAccount(app, tm)
@@ -131,7 +134,7 @@ object SteroCallSession {
 
   private fun registerAccount(app: Context, tm: TelecomManager): PhoneAccountHandle {
     val handle = accountHandle(app)
-    val account = PhoneAccount.builder(handle, "Stero")
+    val account = PhoneAccount.builder(handle, CALL_NAME)
       .setCapabilities(PhoneAccount.CAPABILITY_SELF_MANAGED)
       .addSupportedUriScheme(PhoneAccount.SCHEME_TEL)
       .setShortDescription("Stero watch call")
