@@ -24,12 +24,9 @@ object AssistantActivationBridge {
       return
     }
     lastActivateAtMs = now
+    // Keep pending until JS consumePendingActivation — emit can fire before listeners.
     pendingSource = source
-    val m = module
-    if (m != null) {
-      m.emitAssistantActivate(source)
-      pendingSource = null
-    }
+    module?.emitAssistantActivate(source)
   }
 
   fun requestCancel() {

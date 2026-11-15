@@ -78,12 +78,18 @@ export function AppProviders() {
   useEffect(() => {
     if (!booted || !profilesReady || !settingsReady || !overlayReady) return;
     const stopAssistant = startAssistantActivationListeners();
+    return () => {
+      stopAssistant();
+    };
+  }, [booted, profilesReady, settingsReady, overlayReady]);
+
+  useEffect(() => {
+    if (!booted || !profilesReady || !settingsReady || !overlayReady) return;
     const stopPhases = overlayMode ? startOverlayPhaseSync() : () => undefined;
     const stopNotify = overlayMode
       ? () => undefined
       : startNotificationListeners();
     return () => {
-      stopAssistant();
       stopPhases();
       stopNotify();
     };

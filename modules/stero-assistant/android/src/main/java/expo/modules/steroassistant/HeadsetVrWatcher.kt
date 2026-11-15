@@ -55,13 +55,26 @@ object HeadsetVrWatcher {
   @Volatile
   private var quietUntilElapsed = 0L
 
+  private val scoTalkRunnable = Runnable {
+    val ctx = appContext ?: return@Runnable
+    val foreign = isForeignPhoneCall(ctx)
+    val phoneUi = looksLikeRealPhoneUi(ctx)
+    Log.i(TAG, "audio probe foreign=$foreign phoneUi=$phoneUi ourSco=$ourSco ui=${SteroOverlayBridge.isUiShowing()}")
+    if (SteroOverlayBridge.isUiShowing() || SteroCallSession.isOwned()) return@Runnable
+    if (foreign || phoneUi) {
+      Log.i(TAG, "Ignore headset audio — real call")
+      return@Runnable
+    }
+    triggerAssistantUi("sco_delayed")
+  }
+
   private val pollRunnable = object : Runnable {
     override fun run() {
       val ctx = appContext ?: return
       if (looksLikeWatchTalkHijack(ctx)) {
         triggerAssistantUi("usage_poll")
       }
-      mainHandler.postDelayed(this, 350)
+      mainHandler.postDelayed(this, 120)
     }
   }
 
@@ -89,9 +102,12 @@ object HeadsetVrWatcher {
             AudioManager.EXTRA_SCO_AUDIO_STATE,
             AudioManager.SCO_AUDIO_STATE_DISCONNECTED,
           )
-          if (state == AudioManager.SCO_AUDIO_STATE_CONNECTED && !ourSco) {
-            Log.i(TAG, "External SCO connected — watch HFP VR")
-            triggerAssistantUi("sco")
+          if (state == AudioManager.SCO_AUDIO_STATE_CONNECTED ||
+            state == AudioManager.SCO_AUDIO_STATE_CONNECTING
+          ) {
+            Log.i(TAG, "SCO state=$state ourSco=$ourSco")
+            armBurstPoll()
+            considerWatchTalkFromAudio()
           }
         }
         BluetoothHeadset.ACTION_VENDOR_SPECIFIC_HEADSET_EVENT -> {
@@ -113,11 +129,12 @@ object HeadsetVrWatcher {
             BluetoothHeadset.EXTRA_STATE,
             BluetoothHeadset.STATE_AUDIO_DISCONNECTED,
           )
-          if (state == BluetoothHeadset.STATE_AUDIO_CONNECTED && !ourSco) {
-            Log.i(TAG, "Headset audio connected — watch VR path")
-            triggerAssistantUi("hfp_audio")
-          } else if (state == BluetoothHeadset.STATE_AUDIO_CONNECTING) {
+          if (state == BluetoothHeadset.STATE_AUDIO_CONNECTED ||
+            state == BluetoothHeadset.STATE_AUDIO_CONNECTING
+          ) {
+            Log.i(TAG, "Headset audio state=$state ourSco=$ourSco")
             armBurstPoll()
+            considerWatchTalkFromAudio()
           }
         }
       }
@@ -128,12 +145,16 @@ object HeadsetVrWatcher {
     ourSco = active
   }
 
-  /** Ignore HandsFree/ManageAssist hijack after the user dismisses ✕. */
-  fun armCancelQuiet(durationMs: Long = 25_000L) {
+  /** Brief ignore so ManageAssist from the same hangup does not retrigger. */
+  fun armCancelQuiet(durationMs: Long = 1_200L) {
     val now = SystemClock.elapsedRealtime()
     lastTriggerAt = now
     quietUntilElapsed = now + durationMs
     Log.i(TAG, "Cancel quiet ${durationMs}ms")
+  }
+
+  fun clearQuiet() {
+    quietUntilElapsed = 0L
   }
 
   fun start(context: Context) {
@@ -149,7 +170,7 @@ object HeadsetVrWatcher {
         addAction(BluetoothHeadset.ACTION_VENDOR_SPECIFIC_HEADSET_EVENT)
       }
       val companyPrefix = "android.bluetooth.headset.intent.category.companyid."
-      for (i in 0..20) {
+      for (i in 0..200) {
         filter.addCategory(companyPrefix + i)
       }
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -159,6 +180,7 @@ object HeadsetVrWatcher {
         app.registerReceiver(receiver, filter)
       }
       registered = true
+      Log.i(TAG, "HeadsetVrWatcher started")
     } catch (e: Exception) {
       Log.w(TAG, "registerReceiver failed: ${e.message}")
     }
@@ -237,7 +259,10 @@ object HeadsetVrWatcher {
           val cls = event.className ?: continue
           if (cls.contains("ManageAssist") ||
             cls.contains("HandsFreeActivity") ||
-            cls.contains("VoiceAssistEntrypoint")
+            cls.contains("VoiceAssistEntrypoint") ||
+            cls.contains("voicesearch.intent") ||
+            cls.contains("VoiceSearch") ||
+            cls.contains("HandsFree")
           ) {
             return true
           }
@@ -272,35 +297,93 @@ object HeadsetVrWatcher {
     return false
   }
 
+  private fun considerWatchTalkFromAudio() {
+    mainHandler.removeCallbacks(scoTalkRunnable)
+    mainHandler.postDelayed(scoTalkRunnable, 600)
+  }
+
+  private fun looksLikeRealPhoneUi(context: Context): Boolean {
+    try {
+      val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+      if (usm != null) {
+        val end = System.currentTimeMillis()
+        val events = usm.queryEvents(end - 2500, end)
+        val event = UsageEvents.Event()
+        while (events.hasNextEvent()) {
+          events.getNextEvent(event)
+          if (event.eventType != UsageEvents.Event.MOVE_TO_FOREGROUND &&
+            event.eventType != UsageEvents.Event.ACTIVITY_RESUMED
+          ) {
+            continue
+          }
+          val pkg = event.packageName ?: continue
+          val cls = event.className ?: ""
+          if (pkg.contains("sterowrist")) continue
+          if (cls.contains("HandsFree") || cls.contains("ManageAssist") ||
+            cls.contains("VoiceSearch") || cls.contains("VoiceAssist")
+          ) {
+            continue
+          }
+          if (pkg.contains("dialer") || pkg.contains("incallui") ||
+            pkg.contains("com.android.phone") ||
+            cls.contains("InCall") || cls.contains("Dialtacts")
+          ) {
+            return true
+          }
+        }
+      }
+    } catch (_: Exception) {
+      // ignore
+    }
+    return false
+  }
+
+  /** Cellular / default-dialer call — not our self-managed Stero session. */
+  fun isForeignPhoneCall(context: Context): Boolean {
+    if (SteroCallSession.isOwned()) return false
+    val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    val mode = am?.mode ?: AudioManager.MODE_NORMAL
+    if (mode == AudioManager.MODE_IN_CALL || mode == AudioManager.MODE_RINGTONE) {
+      return true
+    }
+    try {
+      val tm = context.getSystemService(Context.TELECOM_SERVICE) as? android.telecom.TelecomManager
+      if (tm != null && tm.isInCall) return true
+    } catch (_: Exception) {
+      // Missing READ_PHONE_STATE — mode check above is enough.
+    }
+    return false
+  }
+
   private fun triggerAssistantUi(source: String) {
     val now = SystemClock.elapsedRealtime()
-    // Short debounce only — ManageAssist can reappear on every Talk.
-    if (now - lastTriggerAt < 1200) return
-    // Quiet window: ManageAssist spam was reordering and restarting STT.
+    if (now - lastTriggerAt < 800) return
     if (now < quietUntilElapsed) {
+      Log.i(TAG, "Quiet skip $source")
       return
     }
 
     val ctx = appContext ?: return
+    if (isForeignPhoneCall(ctx)) {
+      Log.i(TAG, "Skip $source — real phone call in progress")
+      return
+    }
 
-    // Orb already up: only raise UI. Warming SCO here re-opens the watch call forever.
+    // Orb already up: raise it. Do not start a second call.
     if (SteroOverlayBridge.isUiShowing()) {
       SteroOverlayBridge.forceOurTasksToFront(ctx)
       if (SteroOverlayBridge.isUiInForeground()) {
         Log.i(TAG, "Skip $source — Stero UI already foreground")
         lastTriggerAt = now
-        quietUntilElapsed = now + 25_000L
         return
       }
       lastTriggerAt = now
-      quietUntilElapsed = now + 12_000L
-      Log.i(TAG, "Reordering Stero UI from $source (was buried) — keep listen")
-      SteroOverlayBridge.bringToFront(ctx, rearmMic = false)
+      Log.i(TAG, "Reordering Stero UI from $source (was buried)")
+      SteroOverlayBridge.bringToFront(ctx, rearmMic = true)
       return
     }
 
     lastTriggerAt = now
-    quietUntilElapsed = now + 12_000L
     AudioRouteHelper.warmWatchScoAsync(ctx)
     mainHandler.post {
       Log.i(TAG, "Showing Stero assistant UI from $source")

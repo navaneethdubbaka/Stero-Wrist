@@ -26,6 +26,7 @@ import { useVoiceSessionStore } from './voiceSessionStore';
 
 let timers: ReturnType<typeof setTimeout>[] = [];
 let listening = false;
+let hangupCommitInFlight = false;
 let pipelineGeneration = 0;
 /** Conversation turn counter within one activation (same sessionId). */
 let conversationTurns = 0;
@@ -277,10 +278,7 @@ async function beginListening(
   timers.push(
     setTimeout(() => {
       if (!listening) return;
-      listening = false;
-      void stt.abort();
-      void stopScoAndMicService();
-      dispatch({ type: 'TRANSCRIPT_EMPTY' });
+      void commitOnHangup();
     }, maxListenMs),
   );
 
@@ -300,6 +298,7 @@ async function beginListening(
           setPartial(text);
         },
         onFinal: (text) => {
+          if (hangupCommitInFlight) return;
           const trimmed =
             text.trim() ||
             useVoiceSessionStore.getState().partialTranscript.trim();
@@ -331,6 +330,7 @@ async function beginListening(
           });
         },
         onEnd: () => {
+          if (hangupCommitInFlight) return;
           if (opts.continuous) {
             // Continuous keeps running until Cancel; ignore soft ends.
             return;
@@ -358,6 +358,7 @@ async function beginListening(
           }
         },
         onError: (message) => {
+          if (hangupCommitInFlight) return;
           if (opts.continuous && softSttError(message)) {
             return;
           }
@@ -463,6 +464,7 @@ export async function activateVoiceSession(
   const dispatch = getDispatch();
 
   if (!settings.assistant.enabled) {
+    console.warn('[Stero] activate skipped: assistant disabled');
     dispatch({
       type: 'FAIL',
       message: 'Assistant is disabled in Settings.',
@@ -518,6 +520,9 @@ export async function activateVoiceSession(
     await stopScoAndMicService();
   }
   const sessionId = createSessionId();
+  console.log(
+    `[Stero] activate trigger=${deps.trigger ?? 'manual'} continuous=${continuous}`,
+  );
   dispatch({ type: 'ACTIVATE', sessionId });
   useVoiceSessionStore.getState().setMicRoute({ label: null, banner: null });
 
@@ -561,6 +566,81 @@ export async function retryLastTranscript(): Promise<void> {
   getDispatch()({ type: 'RETRY_SEND' });
   if (useVoiceSessionStore.getState().snapshot.state === 'SENDING') {
     await runWebhookPipeline(transcript);
+  }
+}
+
+function currentHeardText(): string {
+  const store = useVoiceSessionStore.getState();
+  return (
+    store.snapshot.context.finalTranscript.trim() ||
+    store.partialTranscript.trim()
+  );
+}
+
+/** Hang up: send whatever was heard, then close. Empty hangup cancels. */
+export async function commitOnHangup(
+  deps: VoiceControllerDeps = {},
+): Promise<void> {
+  if (hangupCommitInFlight) return;
+  hangupCommitInFlight = true;
+  try {
+    await commitOnHangupBody(deps);
+  } finally {
+    hangupCommitInFlight = false;
+  }
+}
+
+async function commitOnHangupBody(
+  deps: VoiceControllerDeps,
+): Promise<void> {
+  const stt = deps.stt ?? defaultSttProvider;
+  const state = useVoiceSessionStore.getState().snapshot.state;
+  if (
+    state === 'SENDING' ||
+    state === 'WAITING_RESPONSE' ||
+    state === 'SPEAKING'
+  ) {
+    await hangupWatchCall();
+    return;
+  }
+
+  clearTimers();
+  listening = false;
+  try {
+    await stt.abort();
+  } catch {
+    // ignore
+  }
+
+  const afterAbort = useVoiceSessionStore.getState().snapshot.state;
+  if (
+    afterAbort === 'SENDING' ||
+    afterAbort === 'WAITING_RESPONSE' ||
+    afterAbort === 'SPEAKING'
+  ) {
+    await hangupWatchCall();
+    return;
+  }
+
+  const text = currentHeardText();
+  await hangupWatchCall();
+  await stopScoAndMicService();
+
+  if (!text) {
+    await cancelVoiceSession({
+      ...deps,
+      dismissOverlayUi: true,
+      preserveSco: true,
+    });
+    return;
+  }
+
+  // Hangup ends the turn — do not auto-listen again (that made Talk appear dead).
+  conversationTurns = CONVERSATION_TURN_CAP;
+  getDispatch()({ type: 'TRANSCRIPT_FINAL', transcript: text });
+  await cueTranscriptIfNeeded(text);
+  if (useVoiceSessionStore.getState().snapshot.state === 'SENDING') {
+    await runWebhookPipeline(text);
   }
 }
 

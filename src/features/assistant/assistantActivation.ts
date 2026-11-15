@@ -5,9 +5,13 @@ import {
   consumePendingActivation,
   consumePendingOverlayCancel,
   isOverlayHost,
+  isWatchSessionLive,
   isSteroAssistantAvailable,
 } from '../../../modules/stero-assistant/src';
-import { cancelVoiceSession, activateVoiceSession } from './VoiceSessionController';
+import {
+  activateVoiceSession,
+  commitOnHangup,
+} from './VoiceSessionController';
 import {
   isOverlayLaunchIntent,
   markOverlayMode,
@@ -27,7 +31,7 @@ async function markOverlayIfHeadless(): Promise<void> {
 let subscribed = false;
 /** Dedup rapid cold-start: assistant event + overlay deeplink + pending. */
 let lastActivateAt = 0;
-const ACTIVATE_DEDUPE_MS = 3000;
+const ACTIVATE_DEDUPE_MS = 1200;
 
 function tryActivate(trigger: 'assistant' | 'deeplink'): void {
   const now = Date.now();
@@ -73,20 +77,23 @@ export function startAssistantActivationListeners(): () => void {
 
     subs.push(
       addAssistantOverlayCancelListener(() => {
-        void cancelVoiceSession({ dismissOverlayUi: true });
+        void commitOnHangup({ dismissOverlayUi: true });
       }),
     );
 
-    void consumePendingActivation().then((pending) => {
-      if (pending) {
+    void (async () => {
+      const overlay = await isOverlayHost().catch(() => false);
+      const live = await isWatchSessionLive().catch(() => false);
+      const pending = await consumePendingActivation();
+      if (pending || overlay || live) {
         void markOverlayIfHeadless();
         tryActivate('assistant');
       }
-    });
+    })();
 
     void consumePendingOverlayCancel().then((pending) => {
       if (pending) {
-        void cancelVoiceSession({ dismissOverlayUi: true });
+        void commitOnHangup({ dismissOverlayUi: true });
       }
     });
   }

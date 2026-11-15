@@ -46,6 +46,12 @@ object SteroOverlayBridge {
     headlessRef = WeakReference(activity)
   }
 
+  fun isHeadlessAttached(): Boolean {
+    pruneDeadRefs()
+    val headless = headlessRef?.get() ?: return false
+    return !headless.isFinishing && !headless.isDestroyed
+  }
+
   fun clearSession(session: SteroVoiceInteractionSession) {
     if (sessionRef?.get() === session) {
       sessionRef = null
@@ -180,16 +186,7 @@ object SteroOverlayBridge {
   fun dismiss() {
     hangupWatchCall()
     mainHandler.post {
-      try {
-        sessionRef?.get()?.hide()
-      } catch (_: Exception) {
-        // ignore
-      }
-      try {
-        assistRef?.get()?.finish()
-      } catch (_: Exception) {
-        // ignore
-      }
+      finishAssistUiLocked()
       try {
         headlessRef?.get()?.finish()
       } catch (_: Exception) {
@@ -202,7 +199,21 @@ object SteroOverlayBridge {
     HeadsetVrWatcher.armCancelQuiet()
     hangupWatchCall()
     AssistantActivationBridge.requestCancel()
-    dismiss()
+    // Keep Headless alive so JS can flush the transcript and send to Hermes.
+    mainHandler.post { finishAssistUiLocked() }
+  }
+
+  private fun finishAssistUiLocked() {
+    try {
+      sessionRef?.get()?.hide()
+    } catch (_: Exception) {
+      // ignore
+    }
+    try {
+      assistRef?.get()?.finish()
+    } catch (_: Exception) {
+      // ignore
+    }
   }
 
   private fun hangupWatchCall() {

@@ -32,6 +32,14 @@ class SteroAssistantModule : Module() {
     OnCreate {
       AssistantActivationBridge.module = this@SteroAssistantModule
       SteroOverlayBridge.module = this@SteroAssistantModule
+      val appCtx = appContext.reactContext?.applicationContext
+      if (appCtx != null) {
+        try {
+          HeadsetVrWatcher.start(appCtx)
+        } catch (_: Exception) {
+          // VIS also starts the watcher.
+        }
+      }
     }
 
     OnDestroy {
@@ -123,7 +131,11 @@ class SteroAssistantModule : Module() {
     AsyncFunction("isOverlayHost") {
       val activity = appContext.currentActivity
       val name = activity?.javaClass?.name.orEmpty()
-      name.contains("SteroHeadless")
+      name.contains("SteroHeadless") || SteroOverlayBridge.isHeadlessAttached()
+    }
+
+    AsyncFunction("isWatchSessionLive") {
+      SteroCallSession.isActive() || SteroOverlayBridge.isUiShowing()
     }
   }
 

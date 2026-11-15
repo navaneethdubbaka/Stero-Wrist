@@ -98,12 +98,22 @@ object AudioRouteHelper {
         }
       }
       try {
-        am.isBluetoothScoOn = false
-        am.stopBluetoothSco()
+        repeat(8) {
+          am.isBluetoothScoOn = false
+          am.stopBluetoothSco()
+          if (!am.isBluetoothScoOn) return@repeat
+          try {
+            Thread.sleep(40)
+          } catch (_: InterruptedException) {
+            // ignore
+          }
+        }
       } catch (_: Exception) {
         // ignore
       }
       HeadsetVrWatcher.markOurSco(false)
+      // Leftover HFP SCO after hangup must not reopen Talk / overlay.
+      HeadsetVrWatcher.armCancelQuiet(8_000L)
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         am.clearCommunicationDevice()
       }

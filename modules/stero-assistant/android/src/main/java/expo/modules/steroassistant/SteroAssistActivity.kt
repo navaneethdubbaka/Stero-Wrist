@@ -58,6 +58,10 @@ class SteroAssistActivity : Activity() {
 
     AssistantActivationBridge.requestActivation("assist")
     SteroOverlayBridge.launchHeadlessHost(this)
+    // JS hydrates after Headless "Running main"; re-emit so STT actually starts.
+    window.decorView.postDelayed({
+      AssistantActivationBridge.requestActivation("assist_js_ready", force = true)
+    }, 2800)
   }
 
   override fun onNewIntent(intent: Intent?) {

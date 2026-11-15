@@ -29,9 +29,21 @@ object SteroCallSession {
     return SteroWatchConnection.active?.state == Connection.STATE_ACTIVE
   }
 
+  fun isOwned(): Boolean {
+    return placed || SteroWatchConnection.active != null
+  }
+
+  @Synchronized
   fun startAnsweredCall(context: Context) {
-    if (isActive() || SteroWatchConnection.active != null) return
-    placed = false
+    HeadsetVrWatcher.clearQuiet()
+    if (SteroWatchConnection.active != null || placed) {
+      Log.i(TAG, "startAnsweredCall skipped (already up)")
+      return
+    }
+    if (HeadsetVrWatcher.isForeignPhoneCall(context.applicationContext)) {
+      Log.i(TAG, "startAnsweredCall skipped (foreign call)")
+      return
+    }
     val app = context.applicationContext
     val tm = app.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager ?: return
     val handle = registerAccount(app, tm)
