@@ -2,18 +2,38 @@ import { create } from 'zustand';
 import {
   createDefaultPriorityRules,
   createDefaultSettings,
+  normalizeOutputPreference,
   type AppSettings,
   type AssistantSettings,
   type AudioSettings,
   type NotificationSettings,
   type NotificationPriority,
+  type SttEngineId,
   type TtsSettings,
 } from '../../shared/types/settings';
 import { prefsGetString, prefsSetString } from '../../shared/storage/prefs';
-import { secretDelete, secretSet, ttsApiKeySecretId } from '../../shared/storage/secrets';
+import {
+  groqApiKeySecretId,
+  secretDelete,
+  secretSet,
+  ttsApiKeySecretId,
+} from '../../shared/storage/secrets';
 import { normalizeInputPreference } from '../assistant/audioRoutePolicy';
 import { clampSpeechVolume } from '../notifications/priorityPolicy';
-import { normalizeOutputPreference } from '../../shared/types/settings';
+
+const STT_ENGINES: SttEngineId[] = [
+  'device',
+  'groq_whisper',
+  'groq_whisper_turbo',
+  'custom',
+];
+
+function normalizeSttEngine(value: unknown): SttEngineId {
+  if (typeof value === 'string' && STT_ENGINES.includes(value as SttEngineId)) {
+    return value as SttEngineId;
+  }
+  return 'device';
+}
 
 function mergeNotificationSettings(
   defaults: NotificationSettings,
@@ -71,6 +91,7 @@ type SettingsState = {
   setNotifications: (patch: Partial<NotificationSettings>) => void;
   setAudio: (patch: Partial<AudioSettings>) => void;
   saveTtsApiKey: (apiKey: string) => Promise<void>;
+  saveGroqApiKey: (apiKey: string) => Promise<void>;
 };
 
 function persist(settings: AppSettings) {
@@ -95,7 +116,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const merged: AppSettings = {
         ...defaults,
         ...parsed,
-        assistant: { ...defaults.assistant, ...parsed.assistant },
+        assistant: {
+          ...defaults.assistant,
+          ...parsed.assistant,
+          sttEngine: normalizeSttEngine(parsed.assistant?.sttEngine),
+        },
         tts: {
           ...defaults.tts,
           ...parsed.tts,
@@ -164,6 +189,18 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     };
     persist(settings);
     set({ settings });
+  },
+
+  saveGroqApiKey: async (apiKey) => {
+    const id = groqApiKeySecretId();
+    const trimmed = apiKey.trim();
+    if (!trimmed) {
+      await secretDelete(id).catch(() => undefined);
+      get().setAssistant({ groqApiKeySecretId: undefined });
+      return;
+    }
+    await secretSet(id, trimmed);
+    get().setAssistant({ groqApiKeySecretId: id });
   },
 
   saveTtsApiKey: async (apiKey) => {

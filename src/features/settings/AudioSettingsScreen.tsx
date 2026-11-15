@@ -6,7 +6,7 @@ import type {
   AudioInputPreference,
   AudioOutputPreference,
 } from '../../shared/types/settings';
-import { preferWatchMic, readActiveInputInfo } from '../assistant/audioRoute';
+import { readActiveInputInfo } from '../assistant/audioRoute';
 import { formatMicSourceLabel } from '../assistant/audioRoutePolicy';
 import { useSettingsStore } from './settingsStore';
 
@@ -63,18 +63,8 @@ export function AudioSettingsScreen() {
 
   const refreshProbe = useCallback(() => {
     void (async () => {
-      if (audio.inputDevice === 'phone') {
-        const info = await readActiveInputInfo();
-        setProbeLabel(formatMicSourceLabel(info));
-        return;
-      }
-      const route = await preferWatchMic(audio.inputDevice);
-      const label = formatMicSourceLabel(route.info);
-      setProbeLabel(
-        route.usingPhoneFallback && route.banner
-          ? `${label} — ${route.banner}`
-          : label,
-      );
+      const info = await readActiveInputInfo();
+      setProbeLabel(formatMicSourceLabel(info));
     })();
   }, [audio.inputDevice]);
 
@@ -87,9 +77,9 @@ export function AudioSettingsScreen() {
       <Text style={styles.title}>Audio</Text>
       <Text style={styles.hint}>
         For a watch with mic + speaker, use Input: Auto or Watch/HFP, and Output:
-        Watch speaker. That keeps the Bluetooth call link (HFP) up so you talk
-        and hear through the watch. Pair the watch in the phone Bluetooth
-        settings first.
+        Watch speaker. Talk uses the watch as a Bluetooth headset mic even when
+        the watch screen is off, as long as HFP stays connected. Pair the watch
+        in the phone Bluetooth settings first.
       </Text>
 
       <Text style={styles.section}>Input preference</Text>

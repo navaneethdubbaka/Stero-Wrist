@@ -6,6 +6,7 @@ import { ProfilesScreen } from '../features/profiles/ProfilesScreen';
 import { ProfileEditorScreen } from '../features/profiles/ProfileEditorScreen';
 import { AssistantSettingsScreen } from '../features/settings/AssistantSettingsScreen';
 import { TtsSettingsScreen } from '../features/settings/TtsSettingsScreen';
+import { SttSettingsScreen } from '../features/settings/SttSettingsScreen';
 import { NotificationSettingsScreen } from '../features/settings/NotificationSettingsScreen';
 import { AudioSettingsScreen } from '../features/settings/AudioSettingsScreen';
 import { AssistantRoleScreen } from '../features/settings/AssistantRoleScreen';
@@ -21,6 +22,7 @@ export type RootStackParamList = {
   AssistantSettings: undefined;
   AssistantRole: undefined;
   TtsSettings: undefined;
+  SttSettings: undefined;
   NotificationSettings: undefined;
   AudioSettings: undefined;
   Inbox: undefined;
@@ -78,6 +80,11 @@ export function RootNavigator() {
           name="AssistantRole"
           component={AssistantRoleScreen}
           options={{ title: 'Default assistant' }}
+        />
+        <Stack.Screen
+          name="SttSettings"
+          component={SttSettingsScreen}
+          options={{ title: 'Speech to Text' }}
         />
         <Stack.Screen
           name="TtsSettings"

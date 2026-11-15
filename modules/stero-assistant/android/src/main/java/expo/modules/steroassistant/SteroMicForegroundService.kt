@@ -30,10 +30,12 @@ class SteroMicForegroundService : Service() {
       @Suppress("DEPRECATION")
       startForeground(NOTIFICATION_ID, notification)
     }
+    SteroCallMic.start(this)
     return START_STICKY
   }
 
   override fun onDestroy() {
+    SteroCallMic.stop()
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
       stopForeground(STOP_FOREGROUND_REMOVE)
     } else {

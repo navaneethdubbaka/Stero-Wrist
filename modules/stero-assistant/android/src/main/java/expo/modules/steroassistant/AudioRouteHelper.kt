@@ -7,11 +7,46 @@ import android.content.Context
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
+import android.util.Log
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 object AudioRouteHelper {
+  @Volatile
+  private var warming = false
+
+  @Volatile
+  private var hangupBusy = false
+
+  /**
+   * Kick Telecom call + wait for HFP SCO (before JS boots).
+   * Safe to call repeatedly; no-ops if already warming or SCO is up.
+   */
+  fun warmWatchScoAsync(context: Context) {
+    if (warming) return
+    val app = context.applicationContext
+    val am = audioManager(app)
+    if (am.isBluetoothScoOn && SteroCallSession.isActive()) {
+      HeadsetVrWatcher.markOurSco(true)
+      return
+    }
+    warming = true
+    hangupBusy = false
+    Thread({
+      try {
+        SteroCallSession.startAnsweredCall(app)
+        if (!SteroCallSession.awaitActive(4000)) {
+          SteroCallSession.placeOutgoingFallback(app)
+          SteroCallSession.awaitActive(3000)
+        }
+        startScoRoute(app, am)
+      } finally {
+        warming = false
+      }
+    }, "stero-warm-sco").start()
+  }
+
   fun getActiveInputInfo(context: Context): Map<String, Any> {
     val am = audioManager(context)
     val scoOn = am.isBluetoothScoOn
@@ -43,6 +78,7 @@ object AudioRouteHelper {
   }
 
   fun startInputRoute(context: Context, preferWatch: Boolean): Map<String, Any> {
+    hangupBusy = false
     val am = audioManager(context)
     if (!preferWatch) {
       stopInputRoute(context)
@@ -53,9 +89,14 @@ object AudioRouteHelper {
 
   fun stopInputRoute(context: Context) {
     val am = audioManager(context)
+    val alreadyDown = hangupBusy && !SteroCallSession.isActive() && !am.isBluetoothScoOn
+    if (alreadyDown) return
+    hangupBusy = true
     try {
-      // Stop HFP voice-recognition if a headset started it.
-      withHeadset(context) { adapter, headset ->
+      // Disconnect Telecom first so the watch drops native in-call UI.
+      SteroCallSession.endAnsweredCall()
+      // Leftover AT+BVRA from watch Talk (not used for our fake call).
+      withHeadset(context) { _, headset ->
         for (device in headset.connectedDevices) {
           try {
             headset.stopVoiceRecognition(device)
@@ -64,17 +105,73 @@ object AudioRouteHelper {
           }
         }
       }
-      if (am.isBluetoothScoOn) {
-        am.isBluetoothScoOn = false
-        am.stopBluetoothSco()
+      try {
+        repeat(8) {
+          am.isBluetoothScoOn = false
+          am.stopBluetoothSco()
+          if (!am.isBluetoothScoOn) return@repeat
+          try {
+            Thread.sleep(40)
+          } catch (_: InterruptedException) {
+            // ignore
+          }
+        }
+      } catch (_: Exception) {
+        // ignore
       }
+      HeadsetVrWatcher.markOurSco(false)
+      // Leftover HFP SCO after hangup must not reopen Talk / overlay.
+      HeadsetVrWatcher.armCancelQuiet(8_000L)
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         am.clearCommunicationDevice()
       }
       am.mode = AudioManager.MODE_NORMAL
+      Log.i(
+        "SteroAudioRoute",
+        "hangup scoOn=${am.isBluetoothScoOn} audio=${isHeadsetAudioConnected(context)}",
+      )
     } catch (_: Exception) {
-      // Best-effort teardown.
+      HeadsetVrWatcher.markOurSco(false)
     }
+  }
+
+  /**
+   * Hold Telecom-answered HFP SCO for the whole listen window (no BVRA).
+   */
+  fun beginWatchCapture(context: Context): Map<String, Any> {
+    hangupBusy = false
+    SteroCallSession.startAnsweredCall(context)
+    if (!SteroCallSession.awaitActive(4500)) {
+      SteroCallSession.placeOutgoingFallback(context)
+      SteroCallSession.awaitActive(3000)
+    }
+    val result = if (SteroCallSession.isActive()) {
+      startScoRoute(context, audioManager(context)) ?: getActiveInputInfo(context)
+    } else {
+      startInputRoute(context, preferWatch = true)
+    }
+    // Keep AudioRecord for the whole call — hang-up transcribes the WAV.
+    val am = audioManager(context)
+    val comm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+      am.communicationDevice?.let { deviceLabel(it, it.type.toString()) } ?: "none"
+    } else {
+      "pre-S"
+    }
+    Log.i(
+      "SteroAudioRoute",
+      "beginWatchCapture scoOn=${am.isBluetoothScoOn} comm=$comm result=$result",
+    )
+    return result
+  }
+
+  fun endWatchCapture(context: Context) {
+    Log.i("SteroAudioRoute", "endWatchCapture")
+    stopInputRoute(context)
+  }
+
+  /** @deprecated Use endWatchCapture — kept so older JS bundles still link. */
+  fun releaseWatchListening(context: Context) {
+    endWatchCapture(context)
   }
 
   /**
@@ -170,56 +267,108 @@ object AudioRouteHelper {
     }
 
     try {
-      am.mode = AudioManager.MODE_IN_COMMUNICATION
-      am.isSpeakerphoneOn = false
-
-      val routeDevice = scoIn ?: findScoOutput(am)
-      if (routeDevice != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        am.setCommunicationDevice(routeDevice)
-      }
-
-      // Classic SCO for mic+speaker on HFP watches (Boult / similar).
-      am.startBluetoothSco()
-      am.isBluetoothScoOn = true
-
-      // Also request HFP voice-recognition — many watches raise VR when "Talk" is pressed.
-      withHeadset(context) { _, proxy ->
-        for (device in proxy.connectedDevices) {
-          try {
-            proxy.startVoiceRecognition(device)
-          } catch (_: Exception) {
-            // ignore per-device failures
-          }
-        }
-      }
-
-      // Poll until SCO is up (watches often need >350ms).
-      var ready = false
-      repeat(12) {
-        try {
-          Thread.sleep(150)
-        } catch (_: InterruptedException) {
-          // ignore
-        }
-        if (am.isBluetoothScoOn || findScoInput(am) != null) {
-          ready = true
-          return@repeat
-        }
-      }
-
+      val telecomUp = SteroCallSession.isActive()
       val label = findScoInput(am)?.let { deviceLabel(it, null) }
         ?: headset.name
         ?: "Watch HFP"
 
+      if (telecomUp) {
+        // Telecom owns SCO. Do not startBluetoothSco / MODE_IN_CALL — that
+        // drops the watch native in-call UI.
+        HeadsetVrWatcher.markOurSco(true)
+        val ready = isVirtualCallUp(context, am)
+        Log.i("SteroAudioRoute", "telecom call up sco=$ready label=$label")
+        return mapOf(
+          "label" to label,
+          "kind" to "watch_hfp",
+          "scoOn" to true,
+          "hfpAvailable" to true,
+        )
+      }
+
+      if (isVirtualCallUp(context, am)) {
+        HeadsetVrWatcher.markOurSco(true)
+        Log.i("SteroAudioRoute", "call audio already up label=$label")
+        return mapOf(
+          "label" to label,
+          "kind" to "watch_hfp",
+          "scoOn" to true,
+          "hfpAvailable" to true,
+        )
+      }
+
+      am.mode = AudioManager.MODE_IN_COMMUNICATION
+      am.isSpeakerphoneOn = false
+
+      val routeDevice = findScoInput(am) ?: findScoOutput(am)
+      if (routeDevice != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        am.setCommunicationDevice(routeDevice)
+      }
+
+      HeadsetVrWatcher.markOurSco(true)
+      kickBluetoothSco(am)
+
+      var ready = false
+      repeat(40) { tick ->
+        try {
+          Thread.sleep(100)
+        } catch (_: InterruptedException) {
+          // ignore
+        }
+        if (isVirtualCallUp(context, am)) {
+          ready = true
+          return@repeat
+        }
+        if (tick % 5 == 4) {
+          kickBluetoothSco(am)
+        }
+      }
+
+      ready = isVirtualCallUp(context, am)
+      val scoOn = am.isBluetoothScoOn
+      val audio = isHeadsetAudioConnected(context)
+      Log.i(
+        "SteroAudioRoute",
+        "virtualCall ready=$ready scoOn=$scoOn audio=$audio",
+      )
+
       return mapOf(
         "label" to label,
-        "kind" to if (ready || am.isBluetoothScoOn) "watch_hfp" else "phone",
-        "scoOn" to am.isBluetoothScoOn,
+        "kind" to if (ready) "watch_hfp" else "phone",
+        "scoOn" to ready,
         "hfpAvailable" to true,
       )
     } catch (_: Exception) {
       return null
     }
+  }
+
+  private fun isHeadsetAudioConnected(context: Context): Boolean {
+    var connected = false
+    withHeadset(context) { _, proxy ->
+      connected = proxy.connectedDevices.any { device ->
+        try {
+          proxy.isAudioConnected(device)
+        } catch (_: Exception) {
+          false
+        }
+      }
+    }
+    return connected
+  }
+
+  private fun kickBluetoothSco(am: AudioManager) {
+    try {
+      am.startBluetoothSco()
+      am.isBluetoothScoOn = true
+    } catch (_: Exception) {
+      // ignore
+    }
+  }
+
+  /** Real HFP call link only — a listed SCO *device* is not enough (ghost after HandsFree). */
+  private fun isVirtualCallUp(context: Context, am: AudioManager): Boolean {
+    return am.isBluetoothScoOn || isHeadsetAudioConnected(context)
   }
 
   private data class HeadsetProbe(val connected: Boolean, val name: String?)

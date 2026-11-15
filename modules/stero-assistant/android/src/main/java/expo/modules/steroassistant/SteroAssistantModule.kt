@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.exception.Exceptions
@@ -20,18 +21,39 @@ class SteroAssistantModule : Module() {
     sendEvent("assistantActivate", mapOf("source" to source))
   }
 
+  fun emitOverlayCancel() {
+    sendEvent("assistantOverlayCancel", emptyMap<String, Any>())
+  }
+
   override fun definition() = ModuleDefinition {
     Name("SteroAssistant")
 
-    Events("assistantActivate")
+    Events("assistantActivate", "assistantOverlayCancel")
+
+    OnStartObserving {
+      AssistantActivationBridge.flushPendingToJs()
+    }
 
     OnCreate {
       AssistantActivationBridge.module = this@SteroAssistantModule
+      SteroOverlayBridge.module = this@SteroAssistantModule
+      Log.i("SteroAssist", "JS module live")
+      val appCtx = appContext.reactContext?.applicationContext
+      if (appCtx != null) {
+        try {
+          HeadsetVrWatcher.start(appCtx)
+        } catch (_: Exception) {
+          // VIS also starts the watcher.
+        }
+      }
     }
 
     OnDestroy {
       if (AssistantActivationBridge.module === this@SteroAssistantModule) {
         AssistantActivationBridge.module = null
+      }
+      if (SteroOverlayBridge.module === this@SteroAssistantModule) {
+        SteroOverlayBridge.module = null
       }
     }
 
@@ -77,6 +99,53 @@ class SteroAssistantModule : Module() {
 
     AsyncFunction("stopMicForegroundService") {
       SteroMicForegroundService.stop(context)
+    }
+
+    AsyncFunction("setOverlayPhase") { phase: String ->
+      SteroOverlayBridge.setPhase(phase)
+    }
+
+    AsyncFunction("dismissOverlay") {
+      AudioRouteHelper.stopInputRoute(context)
+      SteroOverlayBridge.dismiss()
+    }
+
+    AsyncFunction("playListenCue") {
+      ListenCueHelper.playReadyBeepBlocking(context)
+    }
+
+    AsyncFunction("playTranscriptCue") {
+      ListenCueHelper.playTranscriptBeepBlocking(context)
+    }
+
+    AsyncFunction("beginWatchCapture") {
+      AudioRouteHelper.beginWatchCapture(context)
+    }
+
+    AsyncFunction("endWatchCapture") {
+      AudioRouteHelper.endWatchCapture(context)
+    }
+
+    AsyncFunction("releaseWatchListening") {
+      AudioRouteHelper.endWatchCapture(context)
+    }
+
+    AsyncFunction("consumePendingOverlayCancel") {
+      AssistantActivationBridge.consumePendingCancel()
+    }
+
+    AsyncFunction("isOverlayHost") {
+      val activity = appContext.currentActivity
+      val name = activity?.javaClass?.name.orEmpty()
+      name.contains("SteroHeadless") || SteroOverlayBridge.isHeadlessAttached()
+    }
+
+    AsyncFunction("isWatchSessionLive") {
+      SteroCallSession.isActive() || SteroOverlayBridge.isUiShowing()
+    }
+
+    AsyncFunction("takeWatchRecording") {
+      SteroCallMic.takeLastWav()
     }
   }
 

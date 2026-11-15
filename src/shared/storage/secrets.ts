@@ -22,6 +22,10 @@ export function ttsApiKeySecretId(): string {
   return 'stero.tts.apiKey';
 }
 
+export function groqApiKeySecretId(): string {
+  return 'stero.stt.groq.apiKey';
+}
+
 /** Native FCM / APNs device push token (not Expo Push token). */
 export function fcmDeviceTokenSecretId(): string {
   return 'stero.fcm.deviceToken';

@@ -1,14 +1,49 @@
 import { AppState, Linking, Platform } from 'react-native';
 import {
   addAssistantActivateListener,
+  addAssistantOverlayCancelListener,
   consumePendingActivation,
+  consumePendingOverlayCancel,
+  isOverlayHost,
+  isWatchSessionLive,
   isSteroAssistantAvailable,
 } from '../../../modules/stero-assistant/src';
-import { activateVoiceSession } from './VoiceSessionController';
+import {
+  activateVoiceSession,
+  commitOnHangup,
+  isHangupCommitInFlight,
+} from './VoiceSessionController';
+import {
+  isOverlayLaunchIntent,
+  markOverlayMode,
+} from './overlayMode';
+
+async function markOverlayIfHeadless(): Promise<void> {
+  if (!isSteroAssistantAvailable()) return;
+  try {
+    if (await isOverlayHost()) {
+      markOverlayMode(true);
+    }
+  } catch {
+    // MainActivity must never enter overlay chrome.
+  }
+}
 
 let subscribed = false;
-/** Dedup rapid cold-start + url event double fire. */
+/** Dedup rapid cold-start: assistant event + overlay deeplink + pending. */
 let lastActivateAt = 0;
+const ACTIVATE_DEDUPE_MS = 1200;
+
+function tryActivate(trigger: 'assistant' | 'deeplink'): void {
+  if (isHangupCommitInFlight()) {
+    console.log('[Stero] activate skipped, hangup transcribe in flight');
+    return;
+  }
+  const now = Date.now();
+  if (now - lastActivateAt < ACTIVATE_DEDUPE_MS) return;
+  lastActivateAt = now;
+  void activateVoiceSession({ trigger });
+}
 
 function handleActivateUrl(url: string | null): void {
   if (!url) return;
@@ -17,10 +52,10 @@ function handleActivateUrl(url: string | null): void {
     lower.startsWith('stero-wrist://activate') ||
     lower.includes('://activate')
   ) {
-    const now = Date.now();
-    if (now - lastActivateAt < 800) return;
-    lastActivateAt = now;
-    void activateVoiceSession({ trigger: 'deeplink' });
+    if (isOverlayLaunchIntent(url)) {
+      void markOverlayIfHeadless();
+    }
+    tryActivate('deeplink');
   }
 }
 
@@ -34,19 +69,41 @@ export function startAssistantActivationListeners(): () => void {
     return () => undefined;
   }
   subscribed = true;
+  console.log('[Stero] activation listeners up');
 
   const subs: Array<{ remove: () => void }> = [];
 
   if (isSteroAssistantAvailable()) {
     subs.push(
       addAssistantActivateListener(() => {
-        void activateVoiceSession({ trigger: 'assistant' });
+        void markOverlayIfHeadless();
+        tryActivate('assistant');
       }),
     );
 
-    void consumePendingActivation().then((pending) => {
+    subs.push(
+      addAssistantOverlayCancelListener(() => {
+        void consumePendingOverlayCancel();
+        void commitOnHangup({ dismissOverlayUi: true });
+      }),
+    );
+
+    void (async () => {
+      const overlay = await isOverlayHost().catch(() => false);
+      const live = await isWatchSessionLive().catch(() => false);
+      const pending = await consumePendingActivation();
+      console.log(
+        `[Stero] boot pending=${Boolean(pending)} overlay=${overlay} live=${live}`,
+      );
+      if (pending || overlay || live) {
+        void markOverlayIfHeadless();
+        tryActivate('assistant');
+      }
+    })();
+
+    void consumePendingOverlayCancel().then((pending) => {
       if (pending) {
-        void activateVoiceSession({ trigger: 'assistant' });
+        void commitOnHangup({ dismissOverlayUi: true });
       }
     });
   }

@@ -48,6 +48,17 @@ type NativeSteroAssistant = {
   consumePendingActivation(): Promise<AssistantActivatePayload | null>;
   startMicForegroundService(): Promise<void>;
   stopMicForegroundService(): Promise<void>;
+  setOverlayPhase(phase: string): Promise<void>;
+  dismissOverlay(): Promise<void>;
+  playListenCue(): Promise<void>;
+  playTranscriptCue(): Promise<void>;
+  beginWatchCapture(): Promise<ActiveInputInfo>;
+  endWatchCapture(): Promise<void>;
+  releaseWatchListening(): Promise<void>;
+  consumePendingOverlayCancel(): Promise<boolean>;
+  isOverlayHost(): Promise<boolean>;
+  isWatchSessionLive(): Promise<boolean>;
+  takeWatchRecording(): Promise<string | null>;
   addListener<EventName extends keyof SteroAssistantModuleEvents>(
     eventName: EventName,
     listener: SteroAssistantModuleEvents[EventName],
@@ -153,4 +164,83 @@ export function addAssistantActivateListener(
     return { remove: () => undefined };
   }
   return Native.addListener('assistantActivate', listener);
+}
+
+export async function setOverlayPhase(phase: string): Promise<void> {
+  if (!Native) return;
+  await Native.setOverlayPhase(phase);
+}
+
+export async function dismissOverlay(): Promise<void> {
+  if (!Native) return;
+  await Native.dismissOverlay();
+}
+
+/** Short beep when STT is ready — cue to speak. */
+export async function playListenCue(): Promise<void> {
+  if (!Native) return;
+  await Native.playListenCue();
+}
+
+/** Confirmation beep after a non-empty transcript. */
+export async function playTranscriptCue(): Promise<void> {
+  if (!Native) return;
+  await Native.playTranscriptCue();
+}
+
+/** Hold HFP SCO + VR for the whole listen window. */
+export async function beginWatchCapture(): Promise<ActiveInputInfo> {
+  if (!Native) return FALLBACK_INPUT;
+  return Native.beginWatchCapture();
+}
+
+/** Drop watch HFP VR / SCO after listen (or on cancel). */
+export async function endWatchCapture(): Promise<void> {
+  if (!Native) return;
+  await Native.endWatchCapture();
+}
+
+/** End watch HFP “listening” (stopVoiceRecognition + SCO). */
+export async function releaseWatchListening(): Promise<void> {
+  if (!Native) return;
+  await Native.endWatchCapture();
+}
+
+export async function consumePendingOverlayCancel(): Promise<boolean> {
+  if (!Native) return false;
+  return Native.consumePendingOverlayCancel();
+}
+
+export async function isOverlayHost(): Promise<boolean> {
+  if (!Native) return false;
+  return Native.isOverlayHost();
+}
+
+export async function isWatchSessionLive(): Promise<boolean> {
+  if (!Native) return false;
+  try {
+    return await Native.isWatchSessionLive();
+  } catch {
+    return false;
+  }
+}
+
+export async function takeWatchRecording(): Promise<string | null> {
+  if (!Native) return null;
+  try {
+    return await Native.takeWatchRecording();
+  } catch {
+    return null;
+  }
+}
+
+export function addAssistantOverlayCancelListener(
+  listener: () => void,
+): { remove: () => void } {
+  if (!Native) {
+    return { remove: () => undefined };
+  }
+  return Native.addListener('assistantOverlayCancel', () => {
+    listener();
+  });
 }

@@ -8,9 +8,17 @@ export type ActiveInputInfo = {
 };
 
 export type AssistantActivatePayload = {
-  source: 'watch' | 'system' | 'pending';
+  source: string;
 };
+
+export type OverlayPhase =
+  | 'listening'
+  | 'thinking'
+  | 'speaking'
+  | 'idle'
+  | 'error';
 
 export type SteroAssistantModuleEvents = {
   assistantActivate: (payload: AssistantActivatePayload) => void;
+  assistantOverlayCancel: (payload: Record<string, never>) => void;
 };
