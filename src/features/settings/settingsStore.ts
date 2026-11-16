@@ -13,13 +13,17 @@ import {
 } from '../../shared/types/settings';
 import { prefsGetString, prefsSetString } from '../../shared/storage/prefs';
 import {
+  cacheGroqApiKey,
+  cacheTtsApiKey,
   groqApiKeySecretId,
   secretDelete,
+  secretGet,
   secretSet,
   ttsApiKeySecretId,
 } from '../../shared/storage/secrets';
 import { normalizeInputPreference } from '../assistant/audioRoutePolicy';
 import { clampSpeechVolume } from '../notifications/priorityPolicy';
+import { setDialPadCode } from '../../../modules/stero-assistant/src';
 
 const STT_ENGINES: SttEngineId[] = [
   'device',
@@ -33,6 +37,14 @@ function normalizeSttEngine(value: unknown): SttEngineId {
     return value as SttEngineId;
   }
   return 'device';
+}
+
+function normalizeDialPadCode(value: unknown): string {
+  if (typeof value !== 'string') return '010';
+  const trimmed = value.trim();
+  if (!trimmed) return '010';
+  const digits = trimmed.replace(/[^\d]/g, '');
+  return digits || '010';
 }
 
 function mergeNotificationSettings(
@@ -105,9 +117,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   hydrate: () => {
     const raw = prefsGetString(SETTINGS_KEY);
     if (!raw) {
+      // Don't persist defaults — that can wipe Groq STT if prefs were not loaded yet.
       const settings = createDefaultSettings();
-      persist(settings);
       set({ settings, hydrated: true });
+      void setDialPadCode(settings.assistant.dialPadCode);
       return;
     }
     try {
@@ -120,6 +133,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           ...defaults.assistant,
           ...parsed.assistant,
           sttEngine: normalizeSttEngine(parsed.assistant?.sttEngine),
+          dialPadCode: normalizeDialPadCode(parsed.assistant?.dialPadCode),
         },
         tts: {
           ...defaults.tts,
@@ -148,20 +162,41 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         settings: merged,
         hydrated: true,
       });
+      void setDialPadCode(merged.assistant.dialPadCode);
+      const groqId = merged.assistant.groqApiKeySecretId;
+      if (groqId) {
+        void secretGet(groqId).then((value) => {
+          if (value) cacheGroqApiKey(value);
+        });
+      }
+      const ttsKeyId = merged.tts.apiKeySecretId;
+      if (ttsKeyId) {
+        void secretGet(ttsKeyId).then((value) => {
+          if (value) cacheTtsApiKey(value);
+        });
+      }
     } catch {
       const settings = createDefaultSettings();
       persist(settings);
       set({ settings, hydrated: true });
+      void setDialPadCode(settings.assistant.dialPadCode);
     }
   },
 
   setAssistant: (patch) => {
+    const nextAssistant = { ...get().settings.assistant, ...patch };
+    if (patch.dialPadCode !== undefined) {
+      nextAssistant.dialPadCode = normalizeDialPadCode(patch.dialPadCode);
+    }
     const settings = {
       ...get().settings,
-      assistant: { ...get().settings.assistant, ...patch },
+      assistant: nextAssistant,
     };
     persist(settings);
     set({ settings });
+    if (patch.dialPadCode !== undefined) {
+      void setDialPadCode(nextAssistant.dialPadCode);
+    }
   },
 
   setTts: (patch) => {
@@ -195,10 +230,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const id = groqApiKeySecretId();
     const trimmed = apiKey.trim();
     if (!trimmed) {
+      cacheGroqApiKey('');
       await secretDelete(id).catch(() => undefined);
       get().setAssistant({ groqApiKeySecretId: undefined });
       return;
     }
+    cacheGroqApiKey(trimmed);
     await secretSet(id, trimmed);
     get().setAssistant({ groqApiKeySecretId: id });
   },
@@ -207,10 +244,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const id = ttsApiKeySecretId();
     const trimmed = apiKey.trim();
     if (!trimmed) {
+      cacheTtsApiKey('');
       await secretDelete(id).catch(() => undefined);
       get().setTts({ apiKeySecretId: undefined });
       return;
     }
+    cacheTtsApiKey(trimmed);
     await secretSet(id, trimmed);
     get().setTts({ apiKeySecretId: id });
   },

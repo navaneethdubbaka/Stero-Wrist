@@ -15,9 +15,12 @@ import {
   endWatchCapture,
   playListenCue,
   playTranscriptCue,
+  startMicForegroundService,
   takeWatchRecording,
 } from '../../../modules/stero-assistant/src';
 import { transcribeWatchRecording } from './stt/transcribeWatchRecording';
+import { hydratePrefs } from '../../shared/storage/prefs';
+import { addTranscript, setTranscriptReply } from './transcriptHistory';
 import { preferWatchMic, stopMicIndicator, stopScoAndMicService } from './audioRoute';
 import { applyAudioOutput } from './audioOutput';
 import { dismissOverlay, setOverlayPhase } from './overlayBridge';
@@ -91,12 +94,19 @@ async function speakReply(
   }
 }
 
+function persistTranscript(text: string): string {
+  const engine =
+    useSettingsStore.getState().settings.assistant.sttEngine ?? 'device';
+  return addTranscript(text, engine);
+}
+
 async function runWebhookPipeline(
   transcript: string,
-  opts: { keepListening?: boolean } = {},
+  opts: { keepListening?: boolean; historyId?: string } = {},
 ): Promise<void> {
   const dispatch = getDispatch();
   const generation = ++pipelineGeneration;
+  const historyId = opts.historyId ?? persistTranscript(transcript);
   clearTimers();
   if (!opts.keepListening) {
     await stopActiveTts();
@@ -119,16 +129,24 @@ async function runWebhookPipeline(
   try {
     dispatch({ type: 'REQUEST_SENT' });
 
+    const hermesStarted = Date.now();
+    console.log(
+      `[Stero] Hermes send chars=${transcript.length} url=${profile.webhook.url}`,
+    );
     const result = await sendTranscript(profile, transcript, {
       sessionId,
       mode: settings.assistant.defaultMode,
-      allowHttp: __DEV__,
+      allowHttp: true,
     });
+    console.log(
+      `[Stero] Hermes ok ms=${Date.now() - hermesStarted} chars=${result.responseText.length}`,
+    );
 
     if (generation !== pipelineGeneration) {
       return;
     }
 
+    setTranscriptReply(historyId, result.responseText);
     dispatch({
       type: 'RESPONSE_RECEIVED',
       reply: result.responseText,
@@ -197,6 +215,7 @@ export type VoiceActivateTrigger =
   | 'home'
   | 'assistant'
   | 'deeplink'
+  | 'dialpad'
   | 'unknown';
 
 export type VoiceControllerDeps = {
@@ -254,6 +273,11 @@ async function beginListening(
   let watchSco = false;
 
   if (phoneOnly) {
+    try {
+      await startMicForegroundService();
+    } catch {
+      // Mic indicator is best-effort.
+    }
     setMicRoute({
       label: 'Mic: Phone — speak after the beep',
       banner: 'Using phone mic',
@@ -280,7 +304,7 @@ async function beginListening(
 
   // Ready beep uses MODE_IN_COMMUNICATION + startBluetoothSco, which knocks
   // Telecom off HFP (watch mic dies). Skip it while the fake call is recording.
-  if (!opts.watchTrigger) {
+  if (!opts.watchTrigger && !phoneOnly) {
     void playListenCue().catch(() => undefined);
   }
 
@@ -513,7 +537,9 @@ export async function activateVoiceSession(
   const continuous = mode === 'continuous';
 
   const fromWatchUi =
-    deps.trigger === 'assistant' || deps.trigger === 'deeplink';
+    deps.trigger === 'assistant' ||
+    deps.trigger === 'deeplink' ||
+    deps.trigger === 'dialpad';
   lastWatchTrigger = fromWatchUi;
 
   const current = useVoiceSessionStore.getState().snapshot.state;
@@ -531,15 +557,12 @@ export async function activateVoiceSession(
       console.log(`[Stero] activate ignored, already ${current}`);
       return;
     }
-    if (fromWatchUi) {
-      await cancelVoiceSession({
-        ...deps,
-        dismissOverlayUi: false,
-        preserveSco: true,
-      });
-    } else {
-      return;
-    }
+    console.log(`[Stero] activate replacing leftover ${current}`);
+    await cancelVoiceSession({
+      ...deps,
+      dismissOverlayUi: !fromWatchUi,
+      preserveSco: fromWatchUi,
+    });
   }
 
   clearTimers();
@@ -624,6 +647,17 @@ export async function commitOnHangup(
     await commitOnHangupBody(deps);
   } finally {
     hangupCommitInFlight = false;
+    await stopMicIndicator();
+    try {
+      await setOverlayPhase('idle');
+    } catch {
+      // ignore
+    }
+    try {
+      await dismissOverlay();
+    } catch {
+      // ignore
+    }
   }
 }
 
@@ -645,7 +679,12 @@ async function commitOnHangupBody(
 ): Promise<void> {
   console.log('[Stero] hangup commit');
   try {
-    await setOverlayPhase('thinking');
+    await hydratePrefs();
+  } catch {
+    // ignore
+  }
+  try {
+    useSettingsStore.getState().hydrate();
   } catch {
     // ignore
   }
@@ -696,9 +735,18 @@ async function commitOnHangupBody(
   }
   console.log(`[Stero] hangup wav=${recPath ?? 'none'} heard=${text ? 'yes' : 'no'}`);
   await hangupWatchCall();
-  await stopMicIndicator();
+  try {
+    await startMicForegroundService();
+  } catch {
+    // Keep JS alive for Hermes even if FGS is denied.
+  }
 
   if (!text && recPath) {
+    try {
+      await setOverlayPhase('transcribing');
+    } catch {
+      // ignore
+    }
     try {
       text = (await transcribeWatchRecording(recPath)).trim();
     } catch (error) {
@@ -722,10 +770,12 @@ async function commitOnHangupBody(
     return;
   }
 
+  void setOverlayPhase('transcribed');
+  void setOverlayPhase('sending');
+
   // Hangup ends the turn — do not auto-listen again (that made Talk appear dead).
   conversationTurns = CONVERSATION_TURN_CAP;
   getDispatch()({ type: 'TRANSCRIPT_FINAL', transcript: text });
-  await cueTranscriptIfNeeded(text);
   if (useVoiceSessionStore.getState().snapshot.state === 'SENDING') {
     await runWebhookPipeline(text);
   }

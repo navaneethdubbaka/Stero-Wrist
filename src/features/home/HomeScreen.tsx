@@ -103,8 +103,7 @@ export function HomeScreen({ navigation }: Props) {
     voiceState !== 'IDLE' && voiceState !== 'ERROR';
   const canActivate =
     settings.assistant.enabled &&
-    settings.assistant.defaultMode === 'single_request' &&
-    (voiceState === 'IDLE' || voiceState === 'ERROR');
+    settings.assistant.defaultMode !== 'notification_only';
   const canCancel =
     voiceState === 'ACTIVATED' ||
     voiceState === 'LISTENING' ||
@@ -263,14 +262,19 @@ export function HomeScreen({ navigation }: Props) {
         </Pressable>
       </View>
 
-      <View style={styles.block}>
-        <Text style={styles.sectionLabel}>Last interaction</Text>
+      <Pressable
+        style={styles.block}
+        onPress={() => navigation.navigate('TranscriptHistory')}
+        accessibilityRole="button"
+      >
+        <Text style={styles.sectionLabel}>Last transcript</Text>
         <Text style={styles.body}>
           {snapshot.context.finalTranscript
             ? snapshot.context.finalTranscript
-            : 'No interactions yet'}
+            : 'No transcripts yet'}
         </Text>
-      </View>
+        <Text style={styles.settingsLabel}>Open transcript history</Text>
+      </Pressable>
 
       <Pressable
         style={styles.block}

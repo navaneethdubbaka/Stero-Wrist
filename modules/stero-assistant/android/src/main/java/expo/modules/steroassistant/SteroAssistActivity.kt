@@ -52,12 +52,13 @@ class SteroAssistActivity : Activity() {
       // Non-fatal.
     }
 
-    // Keep watch HFP warm while headless JS boots; place answered call UI.
-    SteroCallSession.startAnsweredCall(this)
-    AudioRouteHelper.warmWatchScoAsync(this)
+    val dialPad = intent?.getBooleanExtra("stero_dialpad", false) == true
+    // Talk and dial-pad share one Stero answered call (watch in-call UI).
+    SteroCallSession.startAnsweredCall(this, ignoreForeign = true)
+    AudioRouteHelper.warmWatchScoAsync(this, ignoreForeign = true)
 
-    AssistantActivationBridge.requestActivation("assist")
-    SteroOverlayBridge.launchHeadlessHost(this)
+    AssistantActivationBridge.requestActivation(if (dialPad) "dialpad" else "assist")
+    SteroOverlayBridge.launchHeadlessHost(this, source = if (dialPad) "dialpad" else null)
   }
 
   override fun onNewIntent(intent: Intent?) {
@@ -74,12 +75,17 @@ class SteroAssistActivity : Activity() {
     } catch (_: Exception) {
       // Non-fatal.
     }
+    val dialPad = intent?.getBooleanExtra("stero_dialpad", false) == true
     val force = intent?.getBooleanExtra("stero_reorder", false) == true
     AssistantActivationBridge.requestActivation(
-      if (force) "assist_reorder" else "assist",
+      when {
+        dialPad -> "dialpad"
+        force -> "assist_reorder"
+        else -> "assist"
+      },
       force = force,
     )
-    SteroOverlayBridge.launchHeadlessHost(this)
+    SteroOverlayBridge.launchHeadlessHost(this, source = if (dialPad) "dialpad" else null)
   }
 
   override fun onDestroy() {

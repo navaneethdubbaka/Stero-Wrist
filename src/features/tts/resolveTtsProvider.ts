@@ -1,5 +1,5 @@
 import type { TtsProviderId, TtsSettings } from '../../shared/types/settings';
-import { secretGet } from '../../shared/storage/secrets';
+import { cachedTtsApiKey, secretGet } from '../../shared/storage/secrets';
 import { CustomHttpTtsProvider } from './CustomHttpTtsProvider';
 import { FishAudioTtsProvider } from './FishAudioTtsProvider';
 import { OpenAITtsProvider } from './OpenAITtsProvider';
@@ -41,7 +41,7 @@ function createCloudProvider(
     case 'openai':
       return new OpenAITtsProvider(gateway, apiKey, extras);
     case 'fish_audio':
-      return new FishAudioTtsProvider(gateway, apiKey, extras);
+      return new FishAudioTtsProvider(apiKey, extras);
     case 'custom_http':
       return new CustomHttpTtsProvider(gateway, apiKey, extras);
   }
@@ -49,7 +49,7 @@ function createCloudProvider(
 
 /**
  * Resolve TTS provider from effective settings (global + active profile override).
- * Cloud requires gatewayUrl; otherwise falls back to system with usedSystemFallback.
+ * OpenAI/custom require gatewayUrl. Fish Audio calls api.fish.audio directly.
  */
 export function resolveTtsProvider(
   settingsProvider?: TtsProviderId,
@@ -88,7 +88,7 @@ export function resolveTtsProvider(
 
   const cloudId: Exclude<TtsProviderId, 'system'> = policyChoice;
   const gateway = tts.gatewayUrl.trim();
-  if (!gateway) {
+  if (cloudId !== 'fish_audio' && !gateway) {
     return {
       provider: systemTtsProvider,
       usedSystemFallback: true,
@@ -99,8 +99,8 @@ export function resolveTtsProvider(
 
   const wrapper: TtsProvider = {
     async synthesize(text, options) {
-      let apiKey: string | null = null;
-      if (tts.apiKeySecretId) {
+      let apiKey: string | null = cachedTtsApiKey() || null;
+      if (!apiKey && tts.apiKeySecretId) {
         try {
           apiKey = await secretGet(tts.apiKeySecretId);
         } catch {
@@ -110,7 +110,12 @@ export function resolveTtsProvider(
       try {
         const cloud = createCloudProvider(cloudId, tts, apiKey);
         return await cloud.synthesize(text, options);
-      } catch {
+      } catch (error) {
+        console.warn(
+          `[Stero] TTS ${cloudId} failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
         return systemTtsProvider.synthesize(text, options);
       }
     },

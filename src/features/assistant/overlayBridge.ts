@@ -7,6 +7,9 @@ import { isOverlayModeSync } from './overlayMode';
 
 export type OverlayPhase =
   | 'listening'
+  | 'transcribing'
+  | 'transcribed'
+  | 'sending'
   | 'thinking'
   | 'speaking'
   | 'idle'
@@ -40,8 +43,11 @@ export function phaseForVoiceState(
   switch (state) {
     case 'LISTENING':
       return 'listening';
+    case 'TRANSCRIBING':
+      return 'transcribing';
     case 'SENDING':
-      return 'thinking';
+    case 'WAITING_RESPONSE':
+      return 'sending';
     case 'SPEAKING':
       return 'speaking';
     case 'ERROR':

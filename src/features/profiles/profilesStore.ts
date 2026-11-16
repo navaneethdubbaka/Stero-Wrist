@@ -8,6 +8,7 @@ import { prefsGetString, prefsSetString } from '../../shared/storage/prefs';
 import {
   profileTokenSecretId,
   secretDelete,
+  secretGet,
   secretSet,
 } from '../../shared/storage/secrets';
 
@@ -60,6 +61,12 @@ export const useProfilesStore = create<ProfilesState>((set, get) => ({
     }
     const activeProfileId = active && active.length > 0 ? active : null;
     set({ profiles, activeProfileId, hydrated: true });
+    for (const profile of profiles) {
+      const tokenId = profile.webhook.tokenSecretId;
+      if (tokenId) {
+        void secretGet(tokenId);
+      }
+    }
   },
 
   createProfile: async (name: string) => {

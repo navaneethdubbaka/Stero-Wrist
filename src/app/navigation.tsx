@@ -10,6 +10,7 @@ import { SttSettingsScreen } from '../features/settings/SttSettingsScreen';
 import { NotificationSettingsScreen } from '../features/settings/NotificationSettingsScreen';
 import { AudioSettingsScreen } from '../features/settings/AudioSettingsScreen';
 import { AssistantRoleScreen } from '../features/settings/AssistantRoleScreen';
+import { TranscriptHistoryScreen } from '../features/assistant/TranscriptHistoryScreen';
 import { InboxScreen } from '../features/notifications/InboxScreen';
 import { InboxDetailScreen } from '../features/notifications/InboxDetailScreen';
 import { colors } from '../shared/theme/tokens';
@@ -25,6 +26,7 @@ export type RootStackParamList = {
   SttSettings: undefined;
   NotificationSettings: undefined;
   AudioSettings: undefined;
+  TranscriptHistory: undefined;
   Inbox: undefined;
   InboxDetail: { notificationId: string };
 };
@@ -95,6 +97,11 @@ export function RootNavigator() {
           name="NotificationSettings"
           component={NotificationSettingsScreen}
           options={{ title: 'Notifications' }}
+        />
+        <Stack.Screen
+          name="TranscriptHistory"
+          component={TranscriptHistoryScreen}
+          options={{ title: 'Transcript history' }}
         />
         <Stack.Screen
           name="Inbox"

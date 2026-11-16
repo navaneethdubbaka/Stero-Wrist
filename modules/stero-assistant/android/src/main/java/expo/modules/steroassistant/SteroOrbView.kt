@@ -122,6 +122,9 @@ class SteroOrbView(
     phase = next
     status.text = when (next) {
       "listening" -> "Listening on watch…"
+      "transcribing" -> "Transcribing…"
+      "transcribed" -> "Transcribed"
+      "sending" -> "Sending to Hermes…"
       "thinking" -> "Thinking…"
       "speaking" -> "Speaking…"
       "error" -> "Call ended"

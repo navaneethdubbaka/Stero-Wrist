@@ -23,7 +23,7 @@ const TTS_OVERRIDE_PROVIDERS: { id: TtsProviderId | ''; label: string }[] = [
   { id: '', label: 'Use global TTS' },
   { id: 'system', label: 'System' },
   { id: 'openai', label: 'OpenAI (gateway)' },
-  { id: 'fish_audio', label: 'Fish Audio (gateway)' },
+  { id: 'fish_audio', label: 'Fish Audio (api.fish.audio)' },
   { id: 'custom_http', label: 'Custom HTTP (gateway)' },
 ];
 

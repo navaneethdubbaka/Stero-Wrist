@@ -47,7 +47,7 @@ class SteroConnectionService : ConnectionService() {
     request: ConnectionRequest?,
   ) {
     Log.w(TAG, "onCreateIncomingConnectionFailed")
-    SteroCallSession.placeOutgoingFallback(applicationContext)
+    SteroCallSession.onIncomingFailed(applicationContext)
   }
 
   override fun onCreateOutgoingConnectionFailed(
@@ -93,12 +93,21 @@ class SteroWatchConnection(
   }
 
   fun scheduleAnswered() {
-    // Give the watch time to paint incoming/in-call before we go ACTIVE.
+    // Auto-answer so the watch shows in-call, not a ringing incoming.
+    main.post {
+      if (!tearingDown && state != STATE_DISCONNECTED && state != STATE_ACTIVE) {
+        answerNow()
+      }
+    }
     main.postDelayed({
       if (!tearingDown && state != STATE_DISCONNECTED && state != STATE_ACTIVE) {
         answerNow()
       }
-    }, 400)
+    }, 150)
+  }
+
+  override fun onShowIncomingCallUi() {
+    answerNow()
   }
 
   fun answerNow() {
@@ -128,6 +137,7 @@ class SteroWatchConnection(
       // ignore
     }
     if (active === this) active = null
+    SteroCallSession.notifyDisconnected(this)
   }
 
   override fun onAnswer() {
@@ -156,6 +166,11 @@ class SteroWatchConnection(
 
   override fun onReject() {
     disconnectLocal()
+    try {
+      SteroOverlayBridge.requestCancelFromUi()
+    } catch (_: Exception) {
+      // ignore
+    }
   }
 
   @Deprecated("Deprecated in Java")

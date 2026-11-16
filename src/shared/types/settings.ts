@@ -57,6 +57,8 @@ export type AssistantSettings = {
   sttUrl: string;
   /** SecureStore id for Groq API key (never the raw key). */
   groqApiKeySecretId?: string;
+  /** Dial-pad trigger; leading zeros kept. Default 010. */
+  dialPadCode: string;
 };
 
 export type TtsEventOverrideKey =
@@ -189,6 +191,7 @@ export function createDefaultSettings(): AppSettings {
       language: 'en-US',
       sttEngine: 'device',
       sttUrl: '',
+      dialPadCode: '010',
     },
     tts: {
       provider: 'system',
