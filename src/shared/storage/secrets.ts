@@ -26,6 +26,16 @@ export function groqApiKeySecretId(): string {
   return 'stero.stt.groq.apiKey';
 }
 
+let groqKeyCache = '';
+
+export function cacheGroqApiKey(key: string): void {
+  groqKeyCache = key.trim();
+}
+
+export function cachedGroqApiKey(): string {
+  return groqKeyCache;
+}
+
 /** Native FCM / APNs device push token (not Expo Push token). */
 export function fcmDeviceTokenSecretId(): string {
   return 'stero.fcm.deviceToken';

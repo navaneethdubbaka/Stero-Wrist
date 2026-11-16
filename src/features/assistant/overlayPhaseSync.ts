@@ -1,5 +1,6 @@
 import { useSettingsStore } from '../settings/settingsStore';
 import { dismissOverlay, phaseForVoiceState, setOverlayPhase } from './overlayBridge';
+import { isHangupCommitInFlight } from './VoiceSessionController';
 import { useVoiceSessionStore } from './voiceSessionStore';
 
 /**
@@ -15,6 +16,15 @@ export function startOverlayPhaseSync(): () => void {
 
   const unsub = useVoiceSessionStore.subscribe((s) => {
     const state = s.snapshot.state;
+    // Hang-up drives Transcribing → Transcribed → Sending itself.
+    if (
+      isHangupCommitInFlight() &&
+      state !== 'SPEAKING' &&
+      state !== 'IDLE' &&
+      state !== 'ERROR'
+    ) {
+      return;
+    }
     const phase = phaseForVoiceState(state);
     if (!phase || phase === lastPhase) {
       if (state === 'SPEAKING') speakingSeen = true;

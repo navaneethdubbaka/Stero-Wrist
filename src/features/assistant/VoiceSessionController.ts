@@ -18,6 +18,8 @@ import {
   takeWatchRecording,
 } from '../../../modules/stero-assistant/src';
 import { transcribeWatchRecording } from './stt/transcribeWatchRecording';
+import { hydratePrefs } from '../../shared/storage/prefs';
+import { addTranscript, setTranscriptReply } from './transcriptHistory';
 import { preferWatchMic, stopMicIndicator, stopScoAndMicService } from './audioRoute';
 import { applyAudioOutput } from './audioOutput';
 import { dismissOverlay, setOverlayPhase } from './overlayBridge';
@@ -91,12 +93,19 @@ async function speakReply(
   }
 }
 
+function persistTranscript(text: string): string {
+  const engine =
+    useSettingsStore.getState().settings.assistant.sttEngine ?? 'device';
+  return addTranscript(text, engine);
+}
+
 async function runWebhookPipeline(
   transcript: string,
-  opts: { keepListening?: boolean } = {},
+  opts: { keepListening?: boolean; historyId?: string } = {},
 ): Promise<void> {
   const dispatch = getDispatch();
   const generation = ++pipelineGeneration;
+  const historyId = opts.historyId ?? persistTranscript(transcript);
   clearTimers();
   if (!opts.keepListening) {
     await stopActiveTts();
@@ -129,6 +138,7 @@ async function runWebhookPipeline(
       return;
     }
 
+    setTranscriptReply(historyId, result.responseText);
     dispatch({
       type: 'RESPONSE_RECEIVED',
       reply: result.responseText,
@@ -645,7 +655,12 @@ async function commitOnHangupBody(
 ): Promise<void> {
   console.log('[Stero] hangup commit');
   try {
-    await setOverlayPhase('thinking');
+    await hydratePrefs();
+  } catch {
+    // ignore
+  }
+  try {
+    useSettingsStore.getState().hydrate();
   } catch {
     // ignore
   }
@@ -700,6 +715,11 @@ async function commitOnHangupBody(
 
   if (!text && recPath) {
     try {
+      await setOverlayPhase('transcribing');
+    } catch {
+      // ignore
+    }
+    try {
       text = (await transcribeWatchRecording(recPath)).trim();
     } catch (error) {
       const message =
@@ -720,6 +740,18 @@ async function commitOnHangupBody(
       preserveSco: true,
     });
     return;
+  }
+
+  try {
+    await setOverlayPhase('transcribed');
+  } catch {
+    // ignore
+  }
+  await new Promise((r) => setTimeout(r, 450));
+  try {
+    await setOverlayPhase('sending');
+  } catch {
+    // ignore
   }
 
   // Hangup ends the turn — do not auto-listen again (that made Talk appear dead).

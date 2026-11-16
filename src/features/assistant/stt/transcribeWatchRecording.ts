@@ -1,7 +1,13 @@
 import { Platform } from 'react-native';
 import { ExpoSpeechRecognitionModule } from 'expo-speech-recognition';
+import { transcribeGroqNative } from '../../../../modules/stero-assistant/src';
 import { useSettingsStore } from '../../settings/settingsStore';
-import { groqApiKeySecretId, secretGet } from '../../../shared/storage/secrets';
+import {
+  cacheGroqApiKey,
+  cachedGroqApiKey,
+  groqApiKeySecretId,
+  secretGet,
+} from '../../../shared/storage/secrets';
 
 const DEVICE_PACKAGES = [
   'com.google.android.tts',
@@ -52,7 +58,7 @@ function recognizeFile(
       const wait = text ? 0 : 450;
       setTimeout(() => resolve(text), wait);
     };
-    const timer = setTimeout(() => settle(latest), 45_000);
+    const timer = setTimeout(() => settle(latest), 12_000);
     subs.push(
       ExpoSpeechRecognitionModule.addListener('result', (event) => {
         const top = event.results[0]?.transcript?.trim() ?? '';
@@ -128,23 +134,34 @@ async function transcribeDevice(path: string, language: string): Promise<string>
   } catch {
     // ignore leftover binder from the previous Talk
   }
-  await delay(600);
+  await delay(400);
   for (const pkg of DEVICE_PACKAGES) {
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const text = await recognizeFile(uri, language, pkg);
-      if (text) return text;
-      await delay(500);
-    }
+    const text = await recognizeFile(uri, language, pkg);
+    if (text) return text;
   }
   return recognizeFile(uri, language, undefined);
 }
 
-const GROQ_TRANSCRIBE_URL =
-  'https://api.groq.com/openai/v1/audio/transcriptions';
-
 function groqLanguage(language: string): string {
   const tag = language.trim() || 'en';
   return tag.split(/[-_]/)[0]?.toLowerCase() || 'en';
+}
+
+async function loadGroqKey(): Promise<string> {
+  const cached = cachedGroqApiKey();
+  if (cached) return cached;
+  const got = await Promise.race([
+    secretGet(groqApiKeySecretId()),
+    delay(2500).then(() => null),
+  ]);
+  const key = got?.trim() ?? '';
+  if (!key) {
+    throw new Error(
+      'Groq API key is empty. Add it in Speech to Text settings.',
+    );
+  }
+  cacheGroqApiKey(key);
+  return key;
 }
 
 async function transcribeGroq(
@@ -152,41 +169,13 @@ async function transcribeGroq(
   model: 'whisper-large-v3' | 'whisper-large-v3-turbo',
   language: string,
 ): Promise<string> {
-  const apiKey = (await secretGet(groqApiKeySecretId()))?.trim() ?? '';
-  if (!apiKey) {
-    throw new Error('Groq API key is empty. Add it in Assistant settings.');
-  }
-  const body = new FormData();
-  body.append('file', {
-    uri: fileUri(path),
-    type: 'audio/wav',
-    name: 'talk.wav',
-  } as unknown as Blob);
-  body.append('model', model);
-  body.append('temperature', '0');
-  body.append('response_format', 'verbose_json');
-  body.append('language', groqLanguage(language));
-  console.log(`[Stero] Groq STT model=${model}`);
-  const res = await fetch(GROQ_TRANSCRIBE_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body,
-  });
-  const raw = await res.text();
-  if (!res.ok) {
-    throw new Error(`Groq STT HTTP ${res.status}: ${raw.slice(0, 180)}`);
-  }
-  let json: { text?: string; error?: { message?: string } };
-  try {
-    json = JSON.parse(raw) as { text?: string; error?: { message?: string } };
-  } catch {
-    throw new Error('Groq STT returned non-JSON.');
-  }
-  const text = (json.text ?? '').trim();
+  const apiKey = await loadGroqKey();
+  console.log(`[Stero] Groq STT native model=${model}`);
+  const text = (
+    await transcribeGroqNative(path, apiKey, model, groqLanguage(language))
+  ).trim();
   if (!text) {
-    throw new Error(json.error?.message ?? 'Groq STT returned empty text.');
+    throw new Error('Groq STT returned empty text.');
   }
   console.log(`[Stero] file STT using: ${text}`);
   return text;

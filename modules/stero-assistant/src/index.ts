@@ -59,6 +59,12 @@ type NativeSteroAssistant = {
   isOverlayHost(): Promise<boolean>;
   isWatchSessionLive(): Promise<boolean>;
   takeWatchRecording(): Promise<string | null>;
+  transcribeGroq(
+    path: string,
+    apiKey: string,
+    model: string,
+    language: string,
+  ): Promise<string>;
   addListener<EventName extends keyof SteroAssistantModuleEvents>(
     eventName: EventName,
     listener: SteroAssistantModuleEvents[EventName],
@@ -232,6 +238,18 @@ export async function takeWatchRecording(): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+export async function transcribeGroqNative(
+  path: string,
+  apiKey: string,
+  model: string,
+  language: string,
+): Promise<string> {
+  if (!Native?.transcribeGroq) {
+    throw new Error('Groq STT native module missing.');
+  }
+  return Native.transcribeGroq(path, apiKey, model, language);
 }
 
 export function addAssistantOverlayCancelListener(

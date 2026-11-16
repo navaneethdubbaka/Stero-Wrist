@@ -55,6 +55,11 @@ export function SettingsHubScreen({ navigation }: Props) {
           onPress={() => navigation.navigate('SttSettings')}
         />
         <ListRow
+          title="Transcript history"
+          subtitle="Saved Talk transcripts on this phone"
+          onPress={() => navigation.navigate('TranscriptHistory')}
+        />
+        <ListRow
           title="Text to speech"
           subtitle={`Provider: ${tts.provider}`}
           onPress={() => navigation.navigate('TtsSettings')}

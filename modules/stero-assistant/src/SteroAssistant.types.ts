@@ -13,6 +13,9 @@ export type AssistantActivatePayload = {
 
 export type OverlayPhase =
   | 'listening'
+  | 'transcribing'
+  | 'transcribed'
+  | 'sending'
   | 'thinking'
   | 'speaking'
   | 'idle'

@@ -147,6 +147,10 @@ class SteroAssistantModule : Module() {
     AsyncFunction("takeWatchRecording") {
       SteroCallMic.takeLastWav()
     }
+
+    AsyncFunction("transcribeGroq") { path: String, apiKey: String, model: String, language: String ->
+      GroqWhisperClient.transcribe(path, apiKey, model, language)
+    }
   }
 
   private fun getAssistantStatusInternal(): Map<String, Any?> {

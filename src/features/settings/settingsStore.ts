@@ -13,8 +13,10 @@ import {
 } from '../../shared/types/settings';
 import { prefsGetString, prefsSetString } from '../../shared/storage/prefs';
 import {
+  cacheGroqApiKey,
   groqApiKeySecretId,
   secretDelete,
+  secretGet,
   secretSet,
   ttsApiKeySecretId,
 } from '../../shared/storage/secrets';
@@ -105,9 +107,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   hydrate: () => {
     const raw = prefsGetString(SETTINGS_KEY);
     if (!raw) {
-      const settings = createDefaultSettings();
-      persist(settings);
-      set({ settings, hydrated: true });
+      // Don't persist defaults — that can wipe Groq STT if prefs were not loaded yet.
+      set({ settings: createDefaultSettings(), hydrated: true });
       return;
     }
     try {
@@ -148,6 +149,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         settings: merged,
         hydrated: true,
       });
+      const groqId = merged.assistant.groqApiKeySecretId;
+      if (groqId) {
+        void secretGet(groqId).then((value) => {
+          if (value) cacheGroqApiKey(value);
+        });
+      }
     } catch {
       const settings = createDefaultSettings();
       persist(settings);
@@ -195,10 +202,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const id = groqApiKeySecretId();
     const trimmed = apiKey.trim();
     if (!trimmed) {
+      cacheGroqApiKey('');
       await secretDelete(id).catch(() => undefined);
       get().setAssistant({ groqApiKeySecretId: undefined });
       return;
     }
+    cacheGroqApiKey(trimmed);
     await secretSet(id, trimmed);
     get().setAssistant({ groqApiKeySecretId: id });
   },
