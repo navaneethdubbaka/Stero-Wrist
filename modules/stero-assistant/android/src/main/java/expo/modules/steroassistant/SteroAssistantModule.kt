@@ -137,7 +137,9 @@ class SteroAssistantModule : Module() {
     AsyncFunction("isOverlayHost") {
       val activity = appContext.currentActivity
       val name = activity?.javaClass?.name.orEmpty()
-      name.contains("SteroHeadless") || SteroOverlayBridge.isHeadlessAttached()
+      // Only the Headless activity itself — a leftover Headless task must not
+      // paint Main as a grey empty overlay.
+      name.contains("SteroHeadless")
     }
 
     AsyncFunction("isWatchSessionLive") {

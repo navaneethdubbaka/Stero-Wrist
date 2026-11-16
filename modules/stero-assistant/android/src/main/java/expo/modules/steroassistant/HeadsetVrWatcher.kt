@@ -406,6 +406,10 @@ object HeadsetVrWatcher {
       Log.i(TAG, "Skip $source — real phone call in progress")
       return
     }
+    if (SteroOverlayBridge.hangupPipelineActive) {
+      Log.i(TAG, "Skip $source — hangup STT/Hermes still running")
+      return
+    }
 
     // Orb already up: raise it. Do not start a second call.
     if (SteroOverlayBridge.isUiShowing()) {

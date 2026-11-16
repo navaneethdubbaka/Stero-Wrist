@@ -1,16 +1,28 @@
 import * as SecureStore from 'expo-secure-store';
 
+const secretCache = new Map<string, string>();
+
 export async function secretSet(id: string, value: string): Promise<void> {
+  if (value) {
+    secretCache.set(id, value);
+  } else {
+    secretCache.delete(id);
+  }
   await SecureStore.setItemAsync(id, value, {
     keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
   });
 }
 
 export async function secretGet(id: string): Promise<string | null> {
-  return SecureStore.getItemAsync(id);
+  const cached = secretCache.get(id);
+  if (cached) return cached;
+  const value = await SecureStore.getItemAsync(id);
+  if (value) secretCache.set(id, value);
+  return value;
 }
 
 export async function secretDelete(id: string): Promise<void> {
+  secretCache.delete(id);
   await SecureStore.deleteItemAsync(id);
 }
 

@@ -15,6 +15,7 @@ import {
   endWatchCapture,
   playListenCue,
   playTranscriptCue,
+  startMicForegroundService,
   takeWatchRecording,
 } from '../../../modules/stero-assistant/src';
 import { transcribeWatchRecording } from './stt/transcribeWatchRecording';
@@ -128,11 +129,18 @@ async function runWebhookPipeline(
   try {
     dispatch({ type: 'REQUEST_SENT' });
 
+    const hermesStarted = Date.now();
+    console.log(
+      `[Stero] Hermes send chars=${transcript.length} url=${profile.webhook.url}`,
+    );
     const result = await sendTranscript(profile, transcript, {
       sessionId,
       mode: settings.assistant.defaultMode,
-      allowHttp: __DEV__,
+      allowHttp: true,
     });
+    console.log(
+      `[Stero] Hermes ok ms=${Date.now() - hermesStarted} chars=${result.responseText.length}`,
+    );
 
     if (generation !== pipelineGeneration) {
       return;
@@ -634,6 +642,17 @@ export async function commitOnHangup(
     await commitOnHangupBody(deps);
   } finally {
     hangupCommitInFlight = false;
+    await stopMicIndicator();
+    try {
+      await setOverlayPhase('idle');
+    } catch {
+      // ignore
+    }
+    try {
+      await dismissOverlay();
+    } catch {
+      // ignore
+    }
   }
 }
 
@@ -711,7 +730,11 @@ async function commitOnHangupBody(
   }
   console.log(`[Stero] hangup wav=${recPath ?? 'none'} heard=${text ? 'yes' : 'no'}`);
   await hangupWatchCall();
-  await stopMicIndicator();
+  try {
+    await startMicForegroundService();
+  } catch {
+    // Keep JS alive for Hermes even if FGS is denied.
+  }
 
   if (!text && recPath) {
     try {
@@ -742,22 +765,12 @@ async function commitOnHangupBody(
     return;
   }
 
-  try {
-    await setOverlayPhase('transcribed');
-  } catch {
-    // ignore
-  }
-  await new Promise((r) => setTimeout(r, 450));
-  try {
-    await setOverlayPhase('sending');
-  } catch {
-    // ignore
-  }
+  void setOverlayPhase('transcribed');
+  void setOverlayPhase('sending');
 
   // Hangup ends the turn — do not auto-listen again (that made Talk appear dead).
   conversationTurns = CONVERSATION_TURN_CAP;
   getDispatch()({ type: 'TRANSCRIPT_FINAL', transcript: text });
-  await cueTranscriptIfNeeded(text);
   if (useVoiceSessionStore.getState().snapshot.state === 'SENDING') {
     await runWebhookPipeline(text);
   }

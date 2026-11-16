@@ -32,6 +32,11 @@ object SteroOverlayBridge {
   @Volatile
   var module: SteroAssistantModule? = null
 
+  /** True after watch hang-up while JS still transcribes / waits on Hermes. */
+  @Volatile
+  var hangupPipelineActive: Boolean = false
+    private set
+
   fun attachSession(session: SteroVoiceInteractionSession, orb: SteroOrbView) {
     sessionRef = WeakReference(session)
     orbRef = WeakReference(orb)
@@ -184,6 +189,7 @@ object SteroOverlayBridge {
   }
 
   fun dismiss() {
+    hangupPipelineActive = false
     hangupWatchCall()
     mainHandler.post {
       finishAssistUiLocked()
@@ -199,6 +205,19 @@ object SteroOverlayBridge {
     HeadsetVrWatcher.armCancelQuiet()
     hangupWatchCall()
     AssistantActivationBridge.requestCancel()
+    if (hangupPipelineActive) {
+      // Second ✕: hide orb, park Headless so opening the app is not a grey sheet.
+      mainHandler.post {
+        finishAssistUiLocked()
+        try {
+          headlessRef?.get()?.moveTaskToBack(true)
+        } catch (_: Exception) {
+          // ignore
+        }
+      }
+      return
+    }
+    hangupPipelineActive = true
     // Keep Assist + Headless up while JS transcribes the WAV and hits Hermes.
   }
 

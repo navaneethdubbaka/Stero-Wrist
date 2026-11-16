@@ -84,6 +84,9 @@ export function startAssistantActivationListeners(): () => void {
     subs.push(
       addAssistantOverlayCancelListener(() => {
         void consumePendingOverlayCancel();
+        if (isHangupCommitInFlight()) {
+          return;
+        }
         void commitOnHangup({ dismissOverlayUi: true });
       }),
     );
