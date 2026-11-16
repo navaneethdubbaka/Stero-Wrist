@@ -65,6 +65,11 @@ type NativeSteroAssistant = {
     model: string,
     language: string,
   ): Promise<string>;
+  synthesizeFishAudio(
+    apiKey: string,
+    model: string,
+    jsonBody: string,
+  ): Promise<string>;
   addListener<EventName extends keyof SteroAssistantModuleEvents>(
     eventName: EventName,
     listener: SteroAssistantModuleEvents[EventName],
@@ -250,6 +255,17 @@ export async function transcribeGroqNative(
     throw new Error('Groq STT native module missing.');
   }
   return Native.transcribeGroq(path, apiKey, model, language);
+}
+
+export async function synthesizeFishAudioNative(
+  apiKey: string,
+  model: string,
+  jsonBody: string,
+): Promise<string> {
+  if (!Native?.synthesizeFishAudio) {
+    throw new Error('Fish Audio TTS native module missing.');
+  }
+  return Native.synthesizeFishAudio(apiKey, model, jsonBody);
 }
 
 export function addAssistantOverlayCancelListener(

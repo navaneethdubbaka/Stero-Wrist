@@ -22,6 +22,16 @@ export function ttsApiKeySecretId(): string {
   return 'stero.tts.apiKey';
 }
 
+let ttsKeyCache = '';
+
+export function cacheTtsApiKey(key: string): void {
+  ttsKeyCache = key.trim();
+}
+
+export function cachedTtsApiKey(): string {
+  return ttsKeyCache;
+}
+
 export function groqApiKeySecretId(): string {
   return 'stero.stt.groq.apiKey';
 }

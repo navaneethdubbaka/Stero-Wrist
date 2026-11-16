@@ -14,6 +14,7 @@ import {
 import { prefsGetString, prefsSetString } from '../../shared/storage/prefs';
 import {
   cacheGroqApiKey,
+  cacheTtsApiKey,
   groqApiKeySecretId,
   secretDelete,
   secretGet,
@@ -155,6 +156,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           if (value) cacheGroqApiKey(value);
         });
       }
+      const ttsKeyId = merged.tts.apiKeySecretId;
+      if (ttsKeyId) {
+        void secretGet(ttsKeyId).then((value) => {
+          if (value) cacheTtsApiKey(value);
+        });
+      }
     } catch {
       const settings = createDefaultSettings();
       persist(settings);
@@ -216,10 +223,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const id = ttsApiKeySecretId();
     const trimmed = apiKey.trim();
     if (!trimmed) {
+      cacheTtsApiKey('');
       await secretDelete(id).catch(() => undefined);
       get().setTts({ apiKeySecretId: undefined });
       return;
     }
+    cacheTtsApiKey(trimmed);
     await secretSet(id, trimmed);
     get().setTts({ apiKeySecretId: id });
   },

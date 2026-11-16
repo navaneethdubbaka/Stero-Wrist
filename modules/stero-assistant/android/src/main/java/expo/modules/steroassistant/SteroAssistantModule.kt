@@ -151,6 +151,10 @@ class SteroAssistantModule : Module() {
     AsyncFunction("transcribeGroq") { path: String, apiKey: String, model: String, language: String ->
       GroqWhisperClient.transcribe(path, apiKey, model, language)
     }
+
+    AsyncFunction("synthesizeFishAudio") { apiKey: String, model: String, jsonBody: String ->
+      FishAudioTtsClient.synthesize(context, apiKey, model, jsonBody)
+    }
   }
 
   private fun getAssistantStatusInternal(): Map<String, Any?> {

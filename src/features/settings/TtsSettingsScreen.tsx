@@ -22,7 +22,7 @@ const PROVIDERS: { id: TtsProviderId; label: string; hint: string }[] = [
   {
     id: 'fish_audio',
     label: 'Fish Audio',
-    hint: 'Via TTS gateway (provider id: fish_audio)',
+    hint: 'Direct api.fish.audio — model header + voice reference_id',
   },
   {
     id: 'custom_http',
@@ -52,6 +52,8 @@ export function TtsSettingsScreen() {
   const [testing, setTesting] = useState(false);
 
   const cloud = tts.provider !== 'system';
+  const isFish = tts.provider === 'fish_audio';
+  const needsGateway = cloud && !isFish;
   const hasGateway = Boolean(tts.gatewayUrl.trim());
 
   const onSaveKey = async () => {
@@ -78,7 +80,9 @@ export function TtsSettingsScreen() {
       const result = await synthesizeAndPlay(TEST_SAMPLE, 'assistant_response');
       setMessage(
         resolved.usedSystemFallback || result.usedSystemFallback
-          ? 'Played via system TTS (set a gateway URL for cloud voices).'
+          ? isFish
+            ? 'Played via system TTS. Check Fish API key and voice reference ID.'
+            : 'Played via system TTS (set a gateway URL for cloud voices).'
           : 'Test voice finished.',
       );
     } catch {
@@ -105,8 +109,8 @@ export function TtsSettingsScreen() {
     <Screen>
       <Text style={styles.title}>Text to speech</Text>
       <Text style={styles.hint}>
-        Prefer a TTS gateway so OpenAI/Fish keys never ship in the app. Without
-        a gateway URL, cloud providers fall back to system TTS.
+        Fish Audio talks to api.fish.audio with your API key. OpenAI and custom
+        HTTP still use a TTS gateway URL.
       </Text>
 
       <View style={styles.modes}>
@@ -122,22 +126,22 @@ export function TtsSettingsScreen() {
         ))}
       </View>
 
-      {cloud && !hasGateway ? (
+      {needsGateway && !hasGateway ? (
         <Text style={styles.fallbackNote}>
-          No gateway URL — cloud selection will use system TTS. On-device API
-          keys are for gateway auth / local testing only; avoid shipping secrets
-          in production builds.
+          No gateway URL — this provider will use system TTS until you set one.
         </Text>
       ) : null}
 
-      <FormField
-        label="TTS gateway URL"
-        value={tts.gatewayUrl}
-        onChangeText={(gatewayUrl) => setTts({ gatewayUrl })}
-        placeholder="https://your-gateway.example/tts"
-        keyboardType="url"
-        hint="POST { provider, text, voice, model, language, speed, voice_reference_id }"
-      />
+      {needsGateway ? (
+        <FormField
+          label="TTS gateway URL"
+          value={tts.gatewayUrl}
+          onChangeText={(gatewayUrl) => setTts({ gatewayUrl })}
+          placeholder="https://your-gateway.example/tts"
+          keyboardType="url"
+          hint="POST { provider, text, voice, model, language, speed, voice_reference_id }"
+        />
+      ) : null}
 
       <FormField
         label="Voice"
@@ -176,17 +180,29 @@ export function TtsSettingsScreen() {
       {cloud ? (
         <>
           <FormField
-            label="Model"
+            label={isFish ? 'Fish model (header)' : 'Model'}
             value={tts.model}
             onChangeText={(model) => setTts({ model })}
+            placeholder={isFish ? 's2.1-pro-free' : ''}
+            hint={
+              isFish
+                ? 'Sent as header `model`. Default s2.1-pro-free. Voice IDs go in the field below.'
+                : undefined
+            }
           />
           <FormField
-            label="Voice reference ID"
+            label={isFish ? 'Voice model ID (reference_id)' : 'Voice reference ID'}
             value={tts.voiceReferenceId}
             onChangeText={(voiceReferenceId) => setTts({ voiceReferenceId })}
+            placeholder={isFish ? 'Fish voice id from fish.audio' : ''}
+            hint={
+              isFish
+                ? 'Body `reference_id` — copy the voice model id, not the s2.1-pro-free header.'
+                : undefined
+            }
           />
           <FormField
-            label="Gateway / API key"
+            label={isFish ? 'Fish API key' : 'Gateway / API key'}
             value={apiKeyDraft}
             onChangeText={setApiKeyDraft}
             secureTextEntry
