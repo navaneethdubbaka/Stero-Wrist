@@ -70,6 +70,14 @@ type NativeSteroAssistant = {
     model: string,
     jsonBody: string,
   ): Promise<string>;
+  setDialPadCode(code: string): Promise<void>;
+  getDialPadCode(): Promise<string>;
+  isCallRedirectionRoleHeld(): Promise<boolean>;
+  requestCallRedirectionRole(): Promise<{
+    ok: boolean;
+    held?: boolean;
+    error?: string;
+  }>;
   addListener<EventName extends keyof SteroAssistantModuleEvents>(
     eventName: EventName,
     listener: SteroAssistantModuleEvents[EventName],
@@ -255,6 +263,40 @@ export async function transcribeGroqNative(
     throw new Error('Groq STT native module missing.');
   }
   return Native.transcribeGroq(path, apiKey, model, language);
+}
+
+export async function setDialPadCode(code: string): Promise<void> {
+  if (!Native?.setDialPadCode) return;
+  await Native.setDialPadCode(code);
+}
+
+export async function getDialPadCode(): Promise<string> {
+  if (!Native?.getDialPadCode) return '010';
+  try {
+    return await Native.getDialPadCode();
+  } catch {
+    return '010';
+  }
+}
+
+export async function isCallRedirectionRoleHeld(): Promise<boolean> {
+  if (!Native?.isCallRedirectionRoleHeld) return false;
+  try {
+    return await Native.isCallRedirectionRoleHeld();
+  } catch {
+    return false;
+  }
+}
+
+export async function requestCallRedirectionRole(): Promise<{
+  ok: boolean;
+  held?: boolean;
+  error?: string;
+}> {
+  if (!Native?.requestCallRedirectionRole) {
+    return { ok: false, error: 'Native module unavailable' };
+  }
+  return Native.requestCallRedirectionRole();
 }
 
 export async function synthesizeFishAudioNative(

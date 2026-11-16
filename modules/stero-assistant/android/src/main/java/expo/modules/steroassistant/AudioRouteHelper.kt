@@ -23,7 +23,7 @@ object AudioRouteHelper {
    * Kick Telecom call + wait for HFP SCO (before JS boots).
    * Safe to call repeatedly; no-ops if already warming or SCO is up.
    */
-  fun warmWatchScoAsync(context: Context) {
+  fun warmWatchScoAsync(context: Context, ignoreForeign: Boolean = false) {
     if (warming) return
     val app = context.applicationContext
     val am = audioManager(app)
@@ -35,8 +35,11 @@ object AudioRouteHelper {
     hangupBusy = false
     Thread({
       try {
-        SteroCallSession.startAnsweredCall(app)
+        SteroCallSession.startAnsweredCall(app, ignoreForeign)
         if (!SteroCallSession.awaitActive(4000)) {
+          SteroCallSession.answerIfRinging()
+        }
+        if (!SteroCallSession.awaitActive(1500)) {
           SteroCallSession.placeOutgoingFallback(app)
           SteroCallSession.awaitActive(3000)
         }
@@ -140,8 +143,11 @@ object AudioRouteHelper {
    */
   fun beginWatchCapture(context: Context): Map<String, Any> {
     hangupBusy = false
-    SteroCallSession.startAnsweredCall(context)
+    SteroCallSession.startAnsweredCall(context, ignoreForeign = true)
     if (!SteroCallSession.awaitActive(4500)) {
+      SteroCallSession.answerIfRinging()
+    }
+    if (!SteroCallSession.awaitActive(1500)) {
       SteroCallSession.placeOutgoingFallback(context)
       SteroCallSession.awaitActive(3000)
     }

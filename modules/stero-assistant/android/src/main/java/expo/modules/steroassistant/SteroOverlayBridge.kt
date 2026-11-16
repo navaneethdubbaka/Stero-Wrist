@@ -246,8 +246,34 @@ object SteroOverlayBridge {
     }
   }
 
-  fun launchHeadlessHost(context: Context) {
+  fun launchDialPadSession(context: Context) {
     val appCtx = context.applicationContext
+    mainHandler.post {
+      launchHeadlessHost(appCtx, source = "dialpad")
+      try {
+        val intent = Intent(appCtx, SteroAssistActivity::class.java).apply {
+          addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK or
+              Intent.FLAG_ACTIVITY_CLEAR_TOP or
+              Intent.FLAG_ACTIVITY_SINGLE_TOP or
+              Intent.FLAG_ACTIVITY_REORDER_TO_FRONT,
+          )
+          putExtra("stero_dialpad", true)
+        }
+        appCtx.startActivity(intent)
+      } catch (e: Exception) {
+        Log.w(TAG, "launchDialPadSession: ${e.message}")
+      }
+    }
+  }
+
+  fun launchHeadlessHost(context: Context, source: String? = null) {
+    val appCtx = context.applicationContext
+    val activateUri = if (source == "dialpad") {
+      "stero-wrist://activate?overlay=1&source=dialpad"
+    } else {
+      "stero-wrist://activate?overlay=1"
+    }
     mainHandler.post {
       val intent = Intent().setClassName(
         appCtx.packageName,
@@ -258,9 +284,12 @@ object SteroOverlayBridge {
           Intent.FLAG_ACTIVITY_SINGLE_TOP or
           Intent.FLAG_ACTIVITY_REORDER_TO_FRONT,
       )
-      intent.data = Uri.parse("stero-wrist://activate?overlay=1")
+      intent.data = Uri.parse(activateUri)
       intent.putExtra("stero_overlay", true)
       intent.putExtra("stero_activate", true)
+      if (source == "dialpad") {
+        intent.putExtra("stero_dialpad", true)
+      }
       try {
         appCtx.startActivity(intent)
       } catch (_: Exception) {
@@ -272,9 +301,12 @@ object SteroOverlayBridge {
             Intent.FLAG_ACTIVITY_SINGLE_TOP or
             Intent.FLAG_ACTIVITY_REORDER_TO_FRONT,
         )
-        launch.data = Uri.parse("stero-wrist://activate?overlay=1")
+        launch.data = Uri.parse(activateUri)
         launch.putExtra("stero_overlay", true)
         launch.putExtra("stero_activate", true)
+        if (source == "dialpad") {
+          launch.putExtra("stero_dialpad", true)
+        }
         try {
           appCtx.startActivity(launch)
         } catch (_: Exception) {

@@ -28,6 +28,7 @@ const VISS = 'expo.modules.steroassistant.SteroVoiceInteractionSessionService';
 const RECOG = 'expo.modules.steroassistant.SteroRecognitionService';
 const FGS = 'expo.modules.steroassistant.SteroMicForegroundService';
 const CALL = 'expo.modules.steroassistant.SteroConnectionService';
+const REDIRECT = 'expo.modules.steroassistant.SteroCallRedirectionService';
 const HANGUP = 'expo.modules.steroassistant.SteroCallHangupReceiver';
 const ASSIST = 'expo.modules.steroassistant.SteroAssistActivity';
 const HEADLESS = 'com.sterowrist.app.SteroHeadlessActivity';
@@ -232,6 +233,23 @@ const withSteroAssistant = (config) => {
         {
           action: [
             { $: { 'android:name': 'android.telecom.ConnectionService' } },
+          ],
+        },
+      ],
+    });
+
+    ensureService(application, {
+      $: {
+        'android:name': REDIRECT,
+        'android:permission': 'android.permission.BIND_CALL_REDIRECTION_SERVICE',
+        'android:exported': 'true',
+      },
+      'intent-filter': [
+        {
+          action: [
+            {
+              $: { 'android:name': 'android.telecom.CallRedirectionService' },
+            },
           ],
         },
       ],

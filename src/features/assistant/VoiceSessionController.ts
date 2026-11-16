@@ -215,6 +215,7 @@ export type VoiceActivateTrigger =
   | 'home'
   | 'assistant'
   | 'deeplink'
+  | 'dialpad'
   | 'unknown';
 
 export type VoiceControllerDeps = {
@@ -272,6 +273,11 @@ async function beginListening(
   let watchSco = false;
 
   if (phoneOnly) {
+    try {
+      await startMicForegroundService();
+    } catch {
+      // Mic indicator is best-effort.
+    }
     setMicRoute({
       label: 'Mic: Phone — speak after the beep',
       banner: 'Using phone mic',
@@ -298,7 +304,7 @@ async function beginListening(
 
   // Ready beep uses MODE_IN_COMMUNICATION + startBluetoothSco, which knocks
   // Telecom off HFP (watch mic dies). Skip it while the fake call is recording.
-  if (!opts.watchTrigger) {
+  if (!opts.watchTrigger && !phoneOnly) {
     void playListenCue().catch(() => undefined);
   }
 
@@ -531,7 +537,9 @@ export async function activateVoiceSession(
   const continuous = mode === 'continuous';
 
   const fromWatchUi =
-    deps.trigger === 'assistant' || deps.trigger === 'deeplink';
+    deps.trigger === 'assistant' ||
+    deps.trigger === 'deeplink' ||
+    deps.trigger === 'dialpad';
   lastWatchTrigger = fromWatchUi;
 
   const current = useVoiceSessionStore.getState().snapshot.state;
@@ -549,15 +557,12 @@ export async function activateVoiceSession(
       console.log(`[Stero] activate ignored, already ${current}`);
       return;
     }
-    if (fromWatchUi) {
-      await cancelVoiceSession({
-        ...deps,
-        dismissOverlayUi: false,
-        preserveSco: true,
-      });
-    } else {
-      return;
-    }
+    console.log(`[Stero] activate replacing leftover ${current}`);
+    await cancelVoiceSession({
+      ...deps,
+      dismissOverlayUi: !fromWatchUi,
+      preserveSco: fromWatchUi,
+    });
   }
 
   clearTimers();

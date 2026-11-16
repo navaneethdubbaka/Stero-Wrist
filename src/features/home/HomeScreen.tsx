@@ -103,8 +103,7 @@ export function HomeScreen({ navigation }: Props) {
     voiceState !== 'IDLE' && voiceState !== 'ERROR';
   const canActivate =
     settings.assistant.enabled &&
-    settings.assistant.defaultMode === 'single_request' &&
-    (voiceState === 'IDLE' || voiceState === 'ERROR');
+    settings.assistant.defaultMode !== 'notification_only';
   const canCancel =
     voiceState === 'ACTIVATED' ||
     voiceState === 'LISTENING' ||

@@ -64,7 +64,8 @@ object HeadsetVrWatcher {
       TAG,
       "audio probe foreign=$foreign phoneUi=$phoneUi ourSco=$ourSco appOpen=$appOpen ui=${SteroOverlayBridge.isUiShowing()}",
     )
-    if (SteroOverlayBridge.isUiShowing() || SteroCallSession.isOwned()) return@Runnable
+    if (SteroOverlayBridge.isUiShowing() || SteroCallSession.isActive()) return@Runnable
+    SteroCallSession.answerIfRinging()
     if (foreign || phoneUi) {
       Log.i(TAG, "Ignore headset audio — real call")
       return@Runnable

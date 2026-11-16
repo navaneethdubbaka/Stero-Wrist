@@ -1,5 +1,6 @@
 package expo.modules.steroassistant
 
+import android.app.role.RoleManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -157,6 +158,22 @@ class SteroAssistantModule : Module() {
     AsyncFunction("synthesizeFishAudio") { apiKey: String, model: String, jsonBody: String ->
       FishAudioTtsClient.synthesize(context, apiKey, model, jsonBody)
     }
+
+    AsyncFunction("setDialPadCode") { code: String ->
+      SteroDialPadPrefs.setCode(context, code)
+    }
+
+    AsyncFunction("getDialPadCode") {
+      SteroDialPadPrefs.getCode(context)
+    }
+
+    AsyncFunction("isCallRedirectionRoleHeld") {
+      isCallRedirectionRoleHeldInternal()
+    }
+
+    AsyncFunction("requestCallRedirectionRole") {
+      requestCallRedirectionRoleInternal()
+    }
   }
 
   private fun getAssistantStatusInternal(): Map<String, Any?> {
@@ -182,6 +199,44 @@ class SteroAssistantModule : Module() {
   private fun isDefaultAssistantInternal(): Boolean {
     val status = getAssistantStatusInternal()
     return status["isSelected"] == true
+  }
+
+  private fun isCallRedirectionRoleHeldInternal(): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
+    return try {
+      val rm = context.getSystemService(RoleManager::class.java) ?: return false
+      rm.isRoleAvailable(RoleManager.ROLE_CALL_REDIRECTION) &&
+        rm.isRoleHeld(RoleManager.ROLE_CALL_REDIRECTION)
+    } catch (_: Exception) {
+      false
+    }
+  }
+
+  private fun requestCallRedirectionRoleInternal(): Map<String, Any> {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+      return mapOf("ok" to false, "error" to "Call redirection requires Android 10+")
+    }
+    return try {
+      val rm = context.getSystemService(RoleManager::class.java)
+        ?: return mapOf("ok" to false, "error" to "RoleManager missing")
+      if (!rm.isRoleAvailable(RoleManager.ROLE_CALL_REDIRECTION)) {
+        return mapOf("ok" to false, "error" to "Call redirection role is not available on this device.")
+      }
+      if (rm.isRoleHeld(RoleManager.ROLE_CALL_REDIRECTION)) {
+        return mapOf("ok" to true, "held" to true)
+      }
+      val intent = rm.createRequestRoleIntent(RoleManager.ROLE_CALL_REDIRECTION)
+      val activity = appContext.currentActivity
+      if (activity != null) {
+        activity.startActivity(intent)
+      } else {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+      }
+      mapOf("ok" to true, "held" to false)
+    } catch (e: Exception) {
+      mapOf("ok" to false, "error" to (e.message ?: "Could not request call redirection"))
+    }
   }
 
   private fun isRoleAssistantHeld(): Boolean {

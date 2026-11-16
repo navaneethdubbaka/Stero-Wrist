@@ -1,10 +1,16 @@
-import { Alert, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Alert, AppState, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { Screen } from '../../shared/ui/Screen';
 import { FormField } from '../../shared/ui/FormField';
 import { colors, space, touch, type as typeScale } from '../../shared/theme/tokens';
 import { useSettingsStore } from './settingsStore';
 import type { InteractionMode } from '../../shared/types/settings';
 import { prefsGetString, prefsSetString } from '../../shared/storage/prefs';
+import {
+  isCallRedirectionRoleHeld,
+  isSteroAssistantAvailable,
+  requestCallRedirectionRole,
+} from '../../../modules/stero-assistant/src';
 
 const CONTINUOUS_WARN_KEY = 'stero.continuous.batteryWarned';
 
@@ -34,6 +40,24 @@ const MODES: { id: InteractionMode; label: string; hint: string }[] = [
 export function AssistantSettingsScreen() {
   const assistant = useSettingsStore((s) => s.settings.assistant);
   const setAssistant = useSettingsStore((s) => s.setAssistant);
+  const [redirectHeld, setRedirectHeld] = useState<boolean | null>(null);
+  const [redirectMsg, setRedirectMsg] = useState<string | null>(null);
+
+  const refreshRedirect = useCallback(() => {
+    if (!isSteroAssistantAvailable()) {
+      setRedirectHeld(false);
+      return;
+    }
+    void isCallRedirectionRoleHeld().then(setRedirectHeld);
+  }, []);
+
+  useEffect(() => {
+    refreshRedirect();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') refreshRedirect();
+    });
+    return () => sub.remove();
+  }, [refreshRedirect]);
 
   const selectMode = (mode: InteractionMode) => {
     if (mode !== 'continuous') {
@@ -117,6 +141,49 @@ export function AssistantSettingsScreen() {
         onChangeText={(language) => setAssistant({ language })}
         placeholder="en-US"
       />
+
+      <Text style={styles.section}>Dial-pad activation</Text>
+      <Text style={styles.modeHint}>
+        Dial this code on the Phone app and press Call. Only this code is
+        intercepted; every other number places a normal call. Leading zeros
+        are kept.
+      </Text>
+      <FormField
+        label="Dial-pad code"
+        value={assistant.dialPadCode ?? '010'}
+        onChangeText={(dialPadCode) => setAssistant({ dialPadCode })}
+        keyboardType="numeric"
+        hint="Default 010. Requires Android call-redirection role."
+      />
+      <Text style={styles.status}>
+        {redirectHeld == null
+          ? 'Checking call redirection…'
+          : redirectHeld
+            ? 'Call redirection is on — 010 (or your code) opens Stero'
+            : 'Call redirection is off — Android will not offer 010 to Stero'}
+      </Text>
+      <Pressable
+        style={styles.button}
+        onPress={() => {
+          void (async () => {
+            setRedirectMsg(null);
+            const result = await requestCallRedirectionRole();
+            if (!result.ok) {
+              setRedirectMsg(result.error ?? 'Could not open the system prompt.');
+              return;
+            }
+            if (result.held) {
+              setRedirectHeld(true);
+              setRedirectMsg('Call redirection is already allowed.');
+              return;
+            }
+            setRedirectMsg('Complete the system prompt, then return here.');
+          })();
+        }}
+      >
+        <Text style={styles.buttonText}>Allow call redirection</Text>
+      </Pressable>
+      {redirectMsg ? <Text style={styles.modeHint}>{redirectMsg}</Text> : null}
     </Screen>
   );
 }
@@ -167,5 +234,22 @@ const styles = StyleSheet.create({
   warn: {
     ...typeScale.caption,
     color: colors.lanternPending,
+  },
+  status: {
+    ...typeScale.caption,
+    color: colors.foam,
+  },
+  button: {
+    minHeight: touch.min,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.brandBand,
+    borderWidth: 1,
+    borderColor: colors.lanternReady,
+  },
+  buttonText: {
+    ...typeScale.label,
+    color: colors.foam,
   },
 });

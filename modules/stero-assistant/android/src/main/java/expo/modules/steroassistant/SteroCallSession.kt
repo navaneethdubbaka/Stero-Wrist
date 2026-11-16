@@ -25,22 +25,62 @@ object SteroCallSession {
   @Volatile
   private var placed = false
 
+  /** True from addNewIncomingCall until the Connection exists or the attempt fails. */
+  @Volatile
+  private var placing = false
+
   fun isActive(): Boolean {
-    return SteroWatchConnection.active?.state == Connection.STATE_ACTIVE
+    return liveConnection()?.state == Connection.STATE_ACTIVE
   }
 
   fun isOwned(): Boolean {
-    return placed || SteroWatchConnection.active != null
+    return liveConnection() != null
+  }
+
+  fun notifyDisconnected(conn: SteroWatchConnection) {
+    if (SteroWatchConnection.active === conn) {
+      SteroWatchConnection.active = null
+    }
+    placed = false
+    placing = false
+  }
+
+  fun answerIfRinging() {
+    val conn = liveConnection() ?: return
+    if (conn.state == Connection.STATE_RINGING ||
+      conn.state == Connection.STATE_DIALING
+    ) {
+      conn.answerNow()
+    }
+  }
+
+  private fun liveConnection(): SteroWatchConnection? {
+    val conn = SteroWatchConnection.active ?: return null
+    return if (conn.state == Connection.STATE_DISCONNECTED) null else conn
   }
 
   @Synchronized
-  fun startAnsweredCall(context: Context) {
+  fun startAnsweredCall(context: Context, ignoreForeign: Boolean = false) {
     HeadsetVrWatcher.clearQuiet()
-    if (SteroWatchConnection.active != null || placed) {
-      Log.i(TAG, "startAnsweredCall skipped (already up)")
+    val existing = liveConnection()
+    if (existing != null) {
+      if (existing.state == Connection.STATE_ACTIVE) {
+        Log.i(TAG, "startAnsweredCall skipped (already active)")
+        return
+      }
+      Log.i(TAG, "startAnsweredCall answering in-flight state=${existing.state}")
+      existing.answerNow()
       return
     }
-    if (HeadsetVrWatcher.isForeignPhoneCall(context.applicationContext)) {
+    if (placing) {
+      Log.i(TAG, "startAnsweredCall skipped (placing)")
+      return
+    }
+    placed = false
+    if (
+      !ignoreForeign &&
+      HeadsetVrWatcher.isForeignPhoneCall(context.applicationContext)
+    ) {
       Log.i(TAG, "startAnsweredCall skipped (foreign call)")
       return
     }
@@ -65,6 +105,7 @@ object SteroCallSession {
     )
 
     placed = true
+    placing = true
     if (incomingOk) {
       try {
         val extras = Bundle().apply {
@@ -80,7 +121,14 @@ object SteroCallSession {
       }
     }
     placed = false
+    placing = false
     placeOutgoingFallback(app)
+  }
+
+  fun onIncomingFailed(context: Context) {
+    placed = false
+    placing = false
+    placeOutgoingFallback(context)
   }
 
   fun placeOutgoingFallback(context: Context) {
@@ -130,11 +178,13 @@ object SteroCallSession {
 
   fun endAnsweredCall() {
     placed = false
+    placing = false
     try {
       SteroWatchConnection.active?.disconnectLocal()
     } catch (e: Exception) {
       Log.w(TAG, "end call: ${e.message}")
     }
+    SteroWatchConnection.active = null
   }
 
   fun accountHandle(context: Context): PhoneAccountHandle {

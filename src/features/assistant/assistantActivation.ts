@@ -34,7 +34,11 @@ let subscribed = false;
 let lastActivateAt = 0;
 const ACTIVATE_DEDUPE_MS = 1200;
 
-function tryActivate(trigger: 'assistant' | 'deeplink'): void {
+function triggerFromSource(source: string | undefined): 'assistant' | 'dialpad' {
+  return source === 'dialpad' ? 'dialpad' : 'assistant';
+}
+
+function tryActivate(trigger: 'assistant' | 'deeplink' | 'dialpad'): void {
   if (isHangupCommitInFlight()) {
     console.log('[Stero] activate skipped, hangup transcribe in flight');
     return;
@@ -55,7 +59,7 @@ function handleActivateUrl(url: string | null): void {
     if (isOverlayLaunchIntent(url)) {
       void markOverlayIfHeadless();
     }
-    tryActivate('deeplink');
+    tryActivate(lower.includes('source=dialpad') ? 'dialpad' : 'deeplink');
   }
 }
 
@@ -75,9 +79,9 @@ export function startAssistantActivationListeners(): () => void {
 
   if (isSteroAssistantAvailable()) {
     subs.push(
-      addAssistantActivateListener(() => {
+      addAssistantActivateListener((payload) => {
         void markOverlayIfHeadless();
-        tryActivate('assistant');
+        tryActivate(triggerFromSource(payload?.source));
       }),
     );
 
@@ -100,7 +104,7 @@ export function startAssistantActivationListeners(): () => void {
       );
       if (pending || overlay || live) {
         void markOverlayIfHeadless();
-        tryActivate('assistant');
+        tryActivate(triggerFromSource(pending?.source));
       }
     })();
 
